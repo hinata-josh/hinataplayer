@@ -49,16 +49,26 @@ header .sp{flex:1}
 /* ---------- 版面 ---------- */
 main{
   flex:1; display:grid; gap:12px; padding:12px;
-  grid-template-columns:340px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr);
-  grid-template-areas:"src player" "src list";
+  /* 三欄：左＝來源、中＝播放清單（自己一區）、右＝播放器 */
+  grid-template-columns:320px minmax(280px,1fr) minmax(430px,1.35fr);
+  grid-template-rows:minmax(0,1fr);
+  grid-template-areas:"src list player";
   min-height:0;
 }
+/* 中等寬度：清單擺在播放器上面，還是不會被壓到最下面 */
+@media (max-width:1240px){
+  main{grid-template-columns:320px minmax(0,1fr);
+       grid-template-rows:minmax(200px,.85fr) auto;
+       grid-template-areas:"src list" "src player"}
+}
 @media (max-width:900px){
-  main{grid-template-columns:1fr;grid-template-rows:auto auto minmax(240px,1fr);
-       grid-template-areas:"player" "src" "list"}
+  main{grid-template-columns:1fr;grid-template-rows:auto minmax(240px,1fr) auto;
+       grid-template-areas:"player" "list" "src"}
 }
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-height:0;display:flex;flex-direction:column}
 #pSrc{grid-area:src} #pPlayer{grid-area:player} #pList{grid-area:list}
+#pPlayer{overflow:auto}
+#pList{min-height:220px}
 .panel h2{font-size:13px;margin:0 0 9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;font-weight:600}
 
 /* ---------- 來源分頁 ---------- */
@@ -240,6 +250,29 @@ kbd{background:#0b1017;border:1px solid var(--line);border-bottom-width:2px;bord
     </div>
   </section>
 
+  <!-- ================= 清單（中間自己一區） ================= -->
+  <section class="panel" id="pList">
+    <h2>播放清單 <span id="plName" class="badge">未命名</span> <span id="plCount" class="badge">0 首</span></h2>
+    <div class="plhead">
+      <select id="plSel" class="btn sm" style="max-width:180px"><option value="">— 開啟已存清單 —</option></select>
+      <button class="btn primary sm" id="btnPlNew" title="建立一個空的自選清單，再從左邊三種來源挑歌加入">➕ 新自選清單</button>
+      <button class="btn sm" id="btnPlSave" title="存成 / 另存為已存清單">💾 儲存</button>
+      <button class="btn sm" id="btnPlRename" title="重新命名目前清單">✏️</button>
+      <button class="btn sm" id="btnPlDel" title="刪除選到的已存清單">🗑️</button>
+      <button class="btn sm" id="btnPlExport" title="匯出成 .json">📤</button>
+      <button class="btn sm" id="btnPlImport" title="從 .json 匯入">📥</button>
+      <button class="btn sm" id="btnPlClear" title="清空目前清單">清空</button>
+    </div>
+    <div class="plhead">
+      <input type="search" id="q" placeholder="搜尋曲名…">
+      <button class="btn sm" id="btnSort" title="依曲名自然排序">🔤 排序</button>
+      <button class="btn sm" id="btnRev" title="反轉順序">🔃 反轉</button>
+      <span class="hint">拖曳曲目可換順序</span>
+    </div>
+    <input type="file" id="plFile" accept=".json,application/json" hidden>
+    <div id="tracks"><div class="empty">左邊挑一個來源建立播放清單 👈<br>Drive 資料夾 / 本機檔案 / 伺服器音樂庫<br><br>想自己挑歌 → 先按 <b>➕ 新自選清單</b>，<br>再到 Drive 勾選喜歡的曲目按「➕ 加入勾選」（可跨資料夾累積）</div></div>
+  </section>
+
   <!-- ================= 播放器 ================= -->
   <section class="panel" id="pPlayer">
     <h2>播放中</h2>
@@ -316,29 +349,6 @@ kbd{background:#0b1017;border:1px solid var(--line);border-bottom-width:2px;bord
       <input type="range" id="vol" min="0" max="1" step="0.01" value="1">
       <span class="hint" id="volTxt">100%</span>
     </div>
-  </section>
-
-  <!-- ================= 清單 ================= -->
-  <section class="panel" id="pList">
-    <h2>播放清單 <span id="plName" class="badge">未命名</span> <span id="plCount" class="badge">0 首</span></h2>
-    <div class="plhead">
-      <select id="plSel" class="btn sm" style="max-width:180px"><option value="">— 開啟已存清單 —</option></select>
-      <button class="btn primary sm" id="btnPlNew" title="建立一個空的自選清單，再從左邊三種來源挑歌加入">➕ 新自選清單</button>
-      <button class="btn sm" id="btnPlSave" title="存成 / 另存為已存清單">💾 儲存</button>
-      <button class="btn sm" id="btnPlRename" title="重新命名目前清單">✏️</button>
-      <button class="btn sm" id="btnPlDel" title="刪除選到的已存清單">🗑️</button>
-      <button class="btn sm" id="btnPlExport" title="匯出成 .json">📤</button>
-      <button class="btn sm" id="btnPlImport" title="從 .json 匯入">📥</button>
-      <button class="btn sm" id="btnPlClear" title="清空目前清單">清空</button>
-    </div>
-    <div class="plhead">
-      <input type="search" id="q" placeholder="搜尋曲名…">
-      <button class="btn sm" id="btnSort" title="依曲名自然排序">🔤 排序</button>
-      <button class="btn sm" id="btnRev" title="反轉順序">🔃 反轉</button>
-      <span class="hint">拖曳曲目可換順序</span>
-    </div>
-    <input type="file" id="plFile" accept=".json,application/json" hidden>
-    <div id="tracks"><div class="empty">左邊挑一個來源建立播放清單 👈<br>Drive 資料夾 / 本機檔案 / 伺服器音樂庫<br><br>想自己挑歌 → 先按 <b>➕ 新自選清單</b>，<br>再到 Drive 勾選喜歡的曲目按「➕ 加入勾選」（可跨資料夾累積）</div></div>
   </section>
 </main>
 
