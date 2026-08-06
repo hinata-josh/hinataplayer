@@ -1,0 +1,1649 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>🎵 Hinata Player — Drive 音檔播放器</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c232d; --line:#2a3340;
+  --txt:#e6edf3; --dim:#8b98a5; --accent:#22d3ee; --accent2:#a78bfa;
+  --ok:#3fb950; --bad:#f85149; --warn:#d29922;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--txt); font:15px/1.5 "Segoe UI","Microsoft JhengHei",system-ui,sans-serif;
+  display:flex; flex-direction:column;
+}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--accent)}
+
+/* ---------- 版頭 ---------- */
+header{
+  display:flex; align-items:center; gap:10px; padding:10px 14px;
+  background:linear-gradient(90deg,#111826,#161b22); border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
+}
+header h1{font-size:17px;margin:0;letter-spacing:.5px;white-space:nowrap}
+header .sp{flex:1}
+.badge{
+  font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);
+  background:#0e1420;color:var(--dim);white-space:nowrap
+}
+.badge.on{color:var(--ok);border-color:#1f4d2b;background:#0f2015}
+.btn{
+  background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+  padding:7px 13px; transition:.12s;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:linear-gradient(135deg,#0e7490,#155e75);border-color:#0e7490;color:#e6feff}
+.btn.primary:hover{filter:brightness(1.18);color:#fff}
+.btn.sm{padding:4px 9px;font-size:13px;border-radius:7px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:disabled:hover{border-color:var(--line);color:var(--txt)}
+
+/* ---------- 版面 ---------- */
+main{
+  flex:1; display:grid; gap:12px; padding:12px;
+  grid-template-columns:340px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr);
+  grid-template-areas:"src player" "src list";
+  min-height:0;
+}
+@media (max-width:900px){
+  main{grid-template-columns:1fr;grid-template-rows:auto auto minmax(240px,1fr);
+       grid-template-areas:"player" "src" "list"}
+}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-height:0;display:flex;flex-direction:column}
+#pSrc{grid-area:src} #pPlayer{grid-area:player} #pList{grid-area:list}
+.panel h2{font-size:13px;margin:0 0 9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;font-weight:600}
+
+/* ---------- 來源分頁 ---------- */
+.tabs{display:flex;gap:5px;margin-bottom:10px}
+.tab{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 4px;font-size:13px;text-align:center}
+.tab.on{background:#0e2b33;border-color:var(--accent);color:var(--accent)}
+.pane{display:none;flex-direction:column;gap:9px;min-height:0;flex:1}
+.pane.on{display:flex}
+.row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.row.tight{gap:5px}
+label.ck{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);cursor:pointer;user-select:none}
+input[type=text],input[type=number],input[type=search]{
+  background:#0b1017;border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0;width:100%
+}
+input:focus{outline:none;border-color:var(--accent)}
+.hint{font-size:12px;color:var(--dim);line-height:1.5}
+
+/* 資料夾瀏覽 */
+#crumbs{font-size:12px;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+#crumbs span.c{cursor:pointer;color:var(--accent)}
+#crumbs span.c:hover{text-decoration:underline}
+#folders{flex:1;min-height:120px;max-height:260px;overflow:auto;background:#0b1017;border:1px solid var(--line);border-radius:9px;padding:4px}
+.fitem{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:14px}
+.fitem:hover{background:#141c28}
+.fitem .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem.aud{cursor:default;color:var(--dim)}
+#drop{
+  border:2px dashed var(--line);border-radius:10px;padding:18px 10px;text-align:center;color:var(--dim);
+  font-size:13px;transition:.15s
+}
+#drop.hot{border-color:var(--accent);color:var(--accent);background:#0e2b33}
+
+/* ---------- 播放器 ---------- */
+#now{font-size:19px;font-weight:600;margin:2px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nowSub{font-size:12px;color:var(--dim);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seekwrap{position:relative;margin:4px 0 2px}
+#seek{width:100%;-webkit-appearance:none;appearance:none;height:22px;background:transparent;cursor:pointer;margin:0}
+#seek::-webkit-slider-runnable-track{height:7px;border-radius:6px;background:linear-gradient(90deg,var(--accent) var(--p,0%),#263141 var(--p,0%))}
+#seek::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#fff;margin-top:-4px;box-shadow:0 0 6px #000}
+#seek::-moz-range-track{height:7px;border-radius:6px;background:#263141}
+#seek::-moz-range-progress{height:7px;border-radius:6px;background:var(--accent)}
+#seek::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:#fff}
+#abmark{position:absolute;left:0;right:0;top:8px;height:7px;pointer-events:none}
+#abmark i{position:absolute;top:0;height:7px;background:rgba(167,139,250,.45);border-radius:4px}
+.times{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.ctrls{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0 6px;flex-wrap:wrap}
+.cbtn{
+  width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);
+  font-size:17px;display:grid;place-items:center;transition:.12s
+}
+.cbtn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.cbtn.big{width:60px;height:60px;font-size:24px;background:linear-gradient(135deg,#0e7490,#155e75);border-color:#0e7490;color:#eafeff}
+.cbtn.big:hover{filter:brightness(1.2);color:#fff}
+.grp{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:7px 0}
+.grp > .lb{font-size:12px;color:var(--dim);min-width:62px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{
+  background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 11px;font-size:13px;
+  font-variant-numeric:tabular-nums
+}
+.seg button.on{background:#0e2b33;border-color:var(--accent);color:var(--accent);font-weight:600}
+.seg button:hover{border-color:var(--accent)}
+#vol{width:110px}
+/* 波形 + 重複範圍框選（作法沿用 ringtone-maker） */
+.wavewrap{position:relative;background:#0b1017;border:1px solid var(--line);border-radius:11px;
+          padding:8px 6px 6px;margin:9px 0 2px;touch-action:none;user-select:none}
+#wave{display:block;width:100%;height:96px;cursor:crosshair}
+#waveHint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;
+          font-size:12px;color:var(--dim);pointer-events:none}
+#waveHint.busy{color:var(--accent)}
+#dlbar{height:4px;background:#263141;border-radius:3px;overflow:hidden;display:none;margin-top:8px}
+#dlbar.on{display:block}
+#dlbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width .15s}
+
+/* ---------- 播放清單 ---------- */
+.plhead{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.plhead input[type=search]{flex:1;min-width:120px;width:auto}
+#tracks{flex:1;overflow:auto;min-height:0;border:1px solid var(--line);border-radius:9px;background:#0b1017}
+.tr{display:flex;gap:9px;align-items:center;padding:7px 10px;border-bottom:1px solid #1a2230;cursor:pointer;font-size:14px}
+.tr:last-child{border-bottom:0}
+.tr:hover{background:#141c28}
+.tr.on{background:#0e2b33;box-shadow:inset 3px 0 0 var(--accent)}
+.tr.on .t{color:var(--accent);font-weight:600}
+.tr.err .t{color:var(--bad);text-decoration:line-through}
+.tr .i{width:26px;text-align:right;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;flex:none}
+.tr .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr .meta{font-size:11px;color:var(--dim);flex:none;font-variant-numeric:tabular-nums}
+.tr .x{opacity:0;color:var(--dim);flex:none;padding:0 2px}
+.tr:hover .x{opacity:1}
+.tr .x:hover{color:var(--bad)}
+.tr.drag{opacity:.4}
+.empty{padding:26px 14px;text-align:center;color:var(--dim);font-size:13px;line-height:1.7}
+
+/* ---------- 對話框 / 提示 ---------- */
+dialog{
+  background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:14px;
+  padding:18px;max-width:560px;width:calc(100% - 28px)
+}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+dialog h3{margin:0 0 10px;font-size:16px}
+dialog ol{padding-left:20px;font-size:13px;color:var(--dim);line-height:1.75}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;z-index:99;pointer-events:none}
+#toast div{
+  background:#0b1017ee;border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:13px;
+  box-shadow:0 6px 20px #0009;max-width:88vw
+}
+#toast div.bad{border-color:var(--bad);color:#ffb4ae}
+#toast div.ok{border-color:#1f4d2b;color:#8ff0a4}
+kbd{background:#0b1017;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 5px;font-size:11px;font-family:inherit}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎵 Hinata Player</h1>
+  <span id="authBadge" class="badge">未登入</span>
+  <span class="sp"></span>
+  <button class="btn sm" id="btnHelp">⌨️ 快速鍵</button>
+  <button class="btn sm" id="btnSet">⚙️ 設定</button>
+  <button class="btn primary sm" id="btnLogin">登入 Google</button>
+  <button class="btn sm" id="btnLogout" style="display:none">登出</button>
+</header>
+
+<main>
+  <!-- ================= 來源 ================= -->
+  <section class="panel" id="pSrc">
+    <h2>音檔來源</h2>
+    <div class="tabs">
+      <button class="tab on" data-pane="drive">☁️ Drive</button>
+      <button class="tab" data-pane="local">💻 本機</button>
+      <button class="tab" data-pane="lib">🗂️ 音樂庫</button>
+    </div>
+
+    <div class="pane on" id="paneDrive">
+      <div class="row">
+        <input type="text" id="fid" placeholder="貼上 Drive 資料夾網址或 ID（可留空用下方瀏覽）">
+      </div>
+      <div class="row tight">
+        <button class="btn sm" id="btnGo">前往</button>
+        <button class="btn sm" id="btnUp">⬆️ 上一層</button>
+        <button class="btn sm" id="btnRoot">🏠 我的雲端硬碟</button>
+      </div>
+      <div id="crumbs"></div>
+      <div id="folders"><div class="empty">登入 Google 後即可瀏覽資料夾</div></div>
+      <div class="row tight">
+        <label class="ck"><input type="checkbox" id="deep"> 含子資料夾</label>
+        <span class="sp" style="flex:1"></span>
+        <button class="btn sm" id="btnSelAll">☑️ 全選</button>
+        <button class="btn sm" id="btnSelNone">☐ 清除勾選</button>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btnScan" style="flex:1">🔍 掃描此資料夾（取代清單）</button>
+      </div>
+      <div class="row tight">
+        <button class="btn sm" id="btnScanAdd" style="flex:1" title="把整個資料夾的音檔加入現有清單">➕ 整個資料夾</button>
+        <button class="btn sm" id="btnAddSel" style="flex:1" title="把上面勾選的曲目加入現有清單（可跨資料夾累積）">➕ 加入勾選（0）</button>
+      </div>
+      <div class="hint">用 <b>drive.readonly</b> 權限唯讀你的 Drive；音檔以你的帳號臨時下載到瀏覽器記憶體播放，不會寫回 Drive。</div>
+    </div>
+
+    <div class="pane" id="paneLocal">
+      <div class="row">
+        <button class="btn" id="btnPickDir" style="flex:1">📂 選擇資料夾</button>
+        <button class="btn" id="btnPickFiles" style="flex:1">🎵 選擇檔案</button>
+      </div>
+      <input type="file" id="fileDir" webkitdirectory directory multiple hidden>
+      <input type="file" id="fileMulti" multiple accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.weba" hidden>
+      <div id="drop">把音檔或整個資料夾<br>拖進這裡</div>
+      <label class="ck"><input type="checkbox" id="localAdd"> 加入現有清單（不勾＝取代清單）</label>
+      <div class="hint">本機檔案完全不上傳，直接由瀏覽器播放。缺點是重開網頁後瀏覽器不能自動再讀本機檔，需重新選一次。</div>
+    </div>
+
+    <div class="pane" id="paneLib">
+      <div class="row">
+        <button class="btn primary" id="btnLib" style="flex:1">🔄 讀取伺服器音樂庫</button>
+      </div>
+      <div id="libList"><div class="empty">此功能需由 <code>開啟播放器.bat</code><br>啟動的本機伺服器提供</div></div>
+      <div class="hint">掃描本工具資料夾底下的 <code>music\</code>，支援拖曳進度條（HTTP Range）。</div>
+    </div>
+  </section>
+
+  <!-- ================= 播放器 ================= -->
+  <section class="panel" id="pPlayer">
+    <h2>播放中</h2>
+    <div id="now">—</div>
+    <div id="nowSub">尚未載入音檔</div>
+
+    <div class="seekwrap">
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
+      <div id="abmark"></div>
+    </div>
+    <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+    <div id="dlbar"><i></i></div>
+
+    <div class="wavewrap" id="wavewrap">
+      <canvas id="wave"></canvas>
+      <div id="waveHint">載入音檔後，在這條波形上拖曳就能框出「重複播放範圍」</div>
+    </div>
+
+    <div class="ctrls">
+      <button class="cbtn" id="btnPrev" title="上一首 (P)">⏮</button>
+      <button class="cbtn" id="btnStop" title="停止 (S) — 回到起始秒數">⏹</button>
+      <button class="cbtn big" id="btnPlay" title="播放/暫停 (空白鍵)">▶</button>
+      <button class="cbtn" id="btnNext" title="下一首 (N)">⏭</button>
+    </div>
+
+    <div class="grp">
+      <span class="lb">播放速度</span>
+      <div class="seg" id="segSpeed">
+        <button data-s="0.25">0.25×</button>
+        <button data-s="0.5">0.5×</button>
+        <button data-s="1" class="on">1×</button>
+        <button data-s="1.5">1.5×</button>
+        <button data-s="2">2×</button>
+      </div>
+      <input type="range" id="speedFine" min="0.25" max="2" step="0.05" value="1" style="width:112px" title="微調速度 0.25×～2×">
+      <span class="hint" id="speedTxt">1.00×</span>
+      <label class="ck"><input type="checkbox" id="pitch" checked> 保留音高</label>
+    </div>
+
+    <div class="grp">
+      <span class="lb">重複播放</span>
+      <div class="seg" id="segRepeat">
+        <button data-r="off" class="on">關閉</button>
+        <button data-r="one">🔂 單曲</button>
+        <button data-r="all">🔁 全部</button>
+      </div>
+      <div class="seg"><button id="btnShuffle">🔀 隨機</button></div>
+    </div>
+
+    <div class="grp">
+      <span class="lb">起始秒數</span>
+      <input type="text" id="startAt" placeholder="0" style="width:82px;flex:none" title="數字秒數或 1:23 格式">
+      <button class="btn sm" id="btnStartHere">用目前位置</button>
+      <button class="btn sm" id="btnStartGo">↩️ 從這裡播</button>
+      <label class="ck" title="每首各自記住自己的起始秒數"><input type="checkbox" id="perTrack" checked> 每首記住</label>
+    </div>
+
+    <div class="grp">
+      <span class="lb">重複範圍</span>
+      <input type="text" id="rangeA" placeholder="起 0:00" style="width:76px;flex:none" title="範圍起點，可填 12 或 1:23">
+      <input type="text" id="rangeB" placeholder="迄 0:30" style="width:76px;flex:none" title="範圍終點">
+      <div class="seg">
+        <button id="btnA" title="用目前播放位置當起點 (A)">A＝現在</button>
+        <button id="btnB" title="用目前播放位置當終點 (B)">B＝現在</button>
+        <button id="btnAB" title="開關範圍重複 (L)">🔁 範圍重複</button>
+        <button id="btnABAll" title="整首當作範圍">整首</button>
+        <button id="btnABClr">清除</button>
+      </div>
+      <span class="hint" id="abTxt">未設定</span>
+    </div>
+
+    <div class="grp">
+      <span class="lb">音量</span>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="1">
+      <span class="hint" id="volTxt">100%</span>
+    </div>
+  </section>
+
+  <!-- ================= 清單 ================= -->
+  <section class="panel" id="pList">
+    <h2>播放清單 <span id="plName" class="badge">未命名</span> <span id="plCount" class="badge">0 首</span></h2>
+    <div class="plhead">
+      <select id="plSel" class="btn sm" style="max-width:180px"><option value="">— 開啟已存清單 —</option></select>
+      <button class="btn primary sm" id="btnPlNew" title="建立一個空的自選清單，再從左邊三種來源挑歌加入">➕ 新自選清單</button>
+      <button class="btn sm" id="btnPlSave" title="存成 / 另存為已存清單">💾 儲存</button>
+      <button class="btn sm" id="btnPlRename" title="重新命名目前清單">✏️</button>
+      <button class="btn sm" id="btnPlDel" title="刪除選到的已存清單">🗑️</button>
+      <button class="btn sm" id="btnPlExport" title="匯出成 .json">📤</button>
+      <button class="btn sm" id="btnPlImport" title="從 .json 匯入">📥</button>
+      <button class="btn sm" id="btnPlClear" title="清空目前清單">清空</button>
+    </div>
+    <div class="plhead">
+      <input type="search" id="q" placeholder="搜尋曲名…">
+      <button class="btn sm" id="btnSort" title="依曲名自然排序">🔤 排序</button>
+      <button class="btn sm" id="btnRev" title="反轉順序">🔃 反轉</button>
+      <span class="hint">拖曳曲目可換順序</span>
+    </div>
+    <input type="file" id="plFile" accept=".json,application/json" hidden>
+    <div id="tracks"><div class="empty">左邊挑一個來源建立播放清單 👈<br>Drive 資料夾 / 本機檔案 / 伺服器音樂庫<br><br>想自己挑歌 → 先按 <b>➕ 新自選清單</b>，<br>再到 Drive 勾選喜歡的曲目按「➕ 加入勾選」（可跨資料夾累積）</div></div>
+  </section>
+</main>
+
+<audio id="au" preload="auto"></audio>
+<div id="toast"></div>
+
+<dialog id="dlgSet">
+  <h3>⚙️ 設定</h3>
+  <p class="hint">瀏覽器端不能用桌面型憑證，要自己開一個「網頁應用程式」型 OAuth 用戶端：</p>
+  <ol>
+    <li>到 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console → 憑證</a></li>
+    <li>啟用 <b>Google Drive API</b></li>
+    <li>建立憑證 → OAuth 用戶端 ID → 類型「<b>網頁應用程式</b>」</li>
+    <li>「已授權的 JavaScript 來源」加入本頁 origin：<code id="origin"></code></li>
+    <li>同意畫面若是「測試中」，把自己的帳號加進<b>測試使用者</b></li>
+  </ol>
+  <div class="row" style="margin:12px 0 4px"><input type="text" id="cid" placeholder="xxxxx.apps.googleusercontent.com" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+  <div class="row" style="margin:10px 0 4px">
+    <span class="hint" style="flex:1">Drive 音檔快取上限（MB）— 超過就丟掉最舊的</span>
+    <input type="number" id="cap" min="50" max="4000" step="50" value="400" style="width:96px;flex:none">
+  </div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px">
+    <button class="btn" id="setClose">取消</button>
+    <button class="btn primary" id="setSave">儲存</button>
+  </div>
+</dialog>
+
+<dialog id="dlgHelp">
+  <h3>⌨️ 快速鍵</h3>
+  <div class="hint" style="line-height:2.1">
+    <kbd>空白</kbd> 播放/暫停　<kbd>S</kbd> 停止（回起始秒數）　<kbd>N</kbd> 下一首　<kbd>P</kbd> 上一首<br>
+    <kbd>←</kbd><kbd>→</kbd> 退/進 5 秒　<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> 1 秒　<kbd>↑</kbd><kbd>↓</kbd> 音量<br>
+    <kbd>[</kbd><kbd>]</kbd> 上/下一個速度　<kbd>1</kbd>~<kbd>5</kbd> 直接選 0.25/0.5/1/1.5/2×（也可用滑桿微調）<br>
+    <kbd>A</kbd> 範圍起點＝現在　<kbd>B</kbd> 範圍終點＝現在　<kbd>L</kbd> 範圍重複開關　<kbd>R</kbd> 切換重複模式<br>
+    <kbd>0</kbd> 回到起始秒數並播放
+    <div style="margin-top:10px;color:var(--dim)">波形上：<b>拖曳</b>＝框選重複範圍、<b>拖把手</b>＝調整邊界、<b>拖範圍內</b>＝整段平移、<b>單擊</b>＝跳到該處</div>
+  </div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" id="helpClose">關閉</button></div>
+</dialog>
+
+<script>
+"use strict";
+/* =========================================================================
+   0) AP — 純邏輯（無 DOM 依賴），供 test/verify.js 直接斷言
+   ========================================================================= */
+const AP = {};
+
+AP.AUDIO_EXT = ['mp3','wav','m4a','m4b','aac','ogg','oga','opus','flac','weba','webm','mp4','aiff','aif','wma','amr','mid','midi'];
+/** Chrome 大致播不動的格式（仍列出但標記，避免使用者以為壞掉） */
+AP.WEAK_EXT = ['wma','aiff','aif','amr','mid','midi'];
+
+AP.ext = function (name) {
+  const m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+};
+
+/** 判斷是不是「可播放音檔」：先看 mimeType，再看副檔名 */
+AP.isAudioFile = function (f) {
+  if (!f) return false;
+  const mime = String(f.mimeType || f.type || '').toLowerCase();
+  if (mime.startsWith('audio/')) return true;
+  if (mime === 'application/vnd.google-apps.folder') return false;
+  if (mime === 'application/ogg') return true;
+  return AP.AUDIO_EXT.includes(AP.ext(f.name));
+};
+
+AP.isWeak = function (name) { return AP.WEAK_EXT.includes(AP.ext(name)); };
+
+AP.fmtTime = function (s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), q = s % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(q)}` : `${m}:${p(q)}`;
+};
+
+/** 「83」「1:23」「1:02:03」→ 秒；空字串→0；不合法→NaN */
+AP.parseTime = function (v) {
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return 0;
+  if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(t)) return NaN;
+  const parts = t.split(':').map(Number);
+  return parts.reduce((a, n) => a * 60 + n, 0);
+};
+
+AP.fmtSize = function (b) {
+  b = Number(b) || 0;
+  if (b >= 1073741824) return (b / 1073741824).toFixed(1) + 'GB';
+  if (b >= 1048576) return (b / 1048576).toFixed(1) + 'MB';
+  if (b >= 1024) return Math.round(b / 1024) + 'KB';
+  return b + 'B';
+};
+
+/** 從 Drive 網址/ID 取資料夾 ID */
+AP.parseFolderId = function (s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  let m = t.match(/\/folders\/([-\w]{10,})/) || t.match(/\/file\/d\/([-\w]{10,})/) ||
+          t.match(/[?&]id=([-\w]{10,})/) || t.match(/[?&]folder=([-\w]{10,})/);
+  if (m) return m[1];
+  if (/^[-\w]{10,}$/.test(t)) return t;
+  if (t === 'root' || t === '我的雲端硬碟') return 'root';
+  return '';
+};
+
+/**
+ * 下一首索引。order = 目前播放順序（索引陣列，隨機時已洗牌）
+ * repeat: 'off' | 'one' | 'all'；manual = 使用者按 ⏭（手動一律循環、且不受單曲重複影響）
+ * 回傳 -1 代表「播完了，停」
+ */
+AP.nextIndex = function (o) {
+  const order = o.order || [];
+  if (!order.length) return -1;
+  if (o.repeat === 'one' && !o.manual) return o.index;
+  const pos = order.indexOf(o.index);
+  const p = pos < 0 ? 0 : pos + 1;
+  if (p >= order.length) return (o.manual || o.repeat === 'all') ? order[0] : -1;
+  return order[p];
+};
+
+AP.prevIndex = function (o) {
+  const order = o.order || [];
+  if (!order.length) return -1;
+  const pos = order.indexOf(o.index);
+  return order[(pos < 0 ? 0 : pos - 1 + order.length) % order.length];
+};
+
+/** 建立播放順序；shuffle 時把目前這首固定放第一個，其餘洗牌 */
+AP.buildOrder = function (count, shuffle, current, rnd) {
+  const a = Array.from({ length: count }, (_, i) => i);
+  if (!shuffle) return a;
+  const R = rnd || Math.random;
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  if (current != null && current >= 0) {
+    const k = a.indexOf(current);
+    if (k > 0) { a.splice(k, 1); a.unshift(current); }
+  }
+  return a;
+};
+
+/** 取樣資料 → n 根峰值柱（0~1），畫波形用 */
+AP.peaks = function (chan, n) {
+  const out = new Array(n).fill(0);
+  if (!chan || !chan.length || n <= 0) return out;
+  const per = chan.length / n;
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const s = Math.floor(i * per), e = Math.min(chan.length, Math.floor((i + 1) * per));
+    let m = 0;
+    for (let j = s; j < e; j++) { const v = chan[j] < 0 ? -chan[j] : chan[j]; if (v > m) m = v; }
+    out[i] = m; if (m > max) max = m;
+  }
+  if (max > 0) for (let i = 0; i < n; i++) out[i] = out[i] / max;   // 正規化，小聲的歌也看得見
+  return out;
+};
+
+/** 多聲道混成單軌峰值 */
+AP.peaksOf = function (audioBuffer, n) {
+  const ch = audioBuffer.numberOfChannels;
+  if (ch === 1) return AP.peaks(audioBuffer.getChannelData(0), n);
+  const a = AP.peaks(audioBuffer.getChannelData(0), n);
+  const b = AP.peaks(audioBuffer.getChannelData(1), n);
+  return a.map((v, i) => Math.max(v, b[i]));
+};
+
+/** 重複範圍正規化：排序、夾在 0~片長、至少 minLen 秒 */
+AP.normRange = function (a, b, dur, minLen) {
+  const min = minLen == null ? 0.2 : minLen;
+  let s = Math.max(0, Number(a) || 0);
+  let e = Math.max(0, Number(b) || 0);
+  if (e < s) { const t = s; s = e; e = t; }
+  if (isFinite(dur) && dur > 0) {
+    s = Math.min(s, Math.max(0, dur - min));
+    e = Math.min(e, dur);
+  }
+  if (e - s < min) e = (isFinite(dur) && dur > 0) ? Math.min(dur, s + min) : s + min;
+  return { a: s, b: e };
+};
+
+AP.SPEEDS = [0.25, 0.5, 1, 1.5, 2];
+AP.stepSpeed = function (cur, dir) {
+  let i = AP.SPEEDS.indexOf(Number(cur));
+  if (i < 0) i = AP.SPEEDS.indexOf(1);
+  return AP.SPEEDS[Math.min(AP.SPEEDS.length - 1, Math.max(0, i + dir))];
+};
+
+AP.clampSeek = function (t, dur) {
+  if (!isFinite(dur) || dur <= 0) return Math.max(0, t || 0);
+  return Math.min(Math.max(0, t || 0), Math.max(0, dur - 0.05));
+};
+
+/** 自然排序（讓「第2部」排在「第10部」前面） */
+AP.natCmp = function (a, b) {
+  return String(a).localeCompare(String(b), 'zh-Hant', { numeric: true, sensitivity: 'base' });
+};
+
+/** LRU byte-capped blob 快取 */
+AP.BlobCache = class {
+  constructor(capBytes) { this.cap = capBytes; this.m = new Map(); this.bytes = 0; }
+  get(k) { const v = this.m.get(k); if (v) { this.m.delete(k); this.m.set(k, v); } return v ? v.url : null; }
+  has(k) { return this.m.has(k); }
+  put(k, url, size) {
+    if (this.m.has(k)) this.drop(k);
+    this.m.set(k, { url, size: size || 0 }); this.bytes += size || 0;
+    while (this.bytes > this.cap && this.m.size > 1) this.drop(this.m.keys().next().value);
+  }
+  drop(k) {
+    const v = this.m.get(k); if (!v) return;
+    this.m.delete(k); this.bytes -= v.size || 0;
+    if (v.revoke !== false) try { URL.revokeObjectURL(v.url); } catch (e) {}
+  }
+  clear() { for (const k of [...this.m.keys()]) this.drop(k); this.bytes = 0; }
+};
+
+window.AP = AP;
+
+/* =========================================================================
+   1) 狀態 / 儲存
+   ========================================================================= */
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem('ap.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('ap.' + k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem('ap.' + k); } catch (e) {} },
+};
+
+const S = {
+  tracks: [],            // {key,kind,name,size,mime,id?,url?,rel?,file?,err?,dur?}
+  index: -1,
+  order: [],
+  repeat: LS.get('repeat', 'off'),
+  shuffle: LS.get('shuffle', false),
+  speed: LS.get('speed', 1),
+  pitch: LS.get('pitch', true),
+  vol: LS.get('vol', 1),
+  startAt: 0,
+  perTrack: LS.get('perTrack', true),
+  starts: LS.get('starts', {}),      // key → 秒
+  ab: { a: null, b: null, on: false },
+  ranges: LS.get('ranges', {}),   // key → {a,b}：每首各自記住重複範圍
+  peaks: null,                    // 目前這首的波形峰值
+  plName: '',            // 目前自選清單名稱（有名字就自動存）
+  plLabel: '',           // 顯示用來源標籤
+  sel: new Map(),        // Drive 勾選累積（可跨資料夾）key → track
+  curAuds: [],           // 目前資料夾裡的音檔（供全選用）
+  auth: false,
+  token: null, tokenExp: 0, tokenClient: null,
+  folder: { id: 'root', name: '我的雲端硬碟' },
+  stack: [],
+  seeking: false,
+  cap: LS.get('cap', 400),
+};
+let cache = new AP.BlobCache(S.cap * 1048576);
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const au = $('#au');
+
+function toast(msg, cls) {
+  const d = document.createElement('div');
+  d.textContent = msg; if (cls) d.className = cls;
+  $('#toast').appendChild(d);
+  setTimeout(() => { d.style.transition = 'opacity .4s'; d.style.opacity = '0'; setTimeout(() => d.remove(), 420); }, cls === 'bad' ? 5200 : 2600);
+}
+window.addEventListener('error', (e) => toast('⚠️ ' + (e.message || 'JS 錯誤'), 'bad'));
+
+/* =========================================================================
+   2) Google 登入（GIS token client）
+   ========================================================================= */
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const clientId = () => (LS.get('cid', '') || '').trim();
+
+function initTokenClient() {
+  if (!clientId() || !window.google?.accounts?.oauth2) return false;
+  S.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId(),
+    scope: SCOPE,
+    callback: (r) => {
+      if (r && r.access_token) {
+        S.token = r.access_token;
+        S.tokenExp = Date.now() + ((r.expires_in || 3600) - 60) * 1000;
+        setAuth(true); toast('已登入 Google', 'ok');
+        browse('root', '我的雲端硬碟');
+      }
+    },
+    error_callback: (e) => toast('登入失敗：' + (e?.type || e?.message || '未知'), 'bad'),
+  });
+  return true;
+}
+
+function setAuth(on) {
+  S.auth = on;
+  $('#authBadge').textContent = on ? '✅ 已登入' : '未登入';
+  $('#authBadge').className = 'badge' + (on ? ' on' : '');
+  $('#btnLogin').style.display = on ? 'none' : '';
+  $('#btnLogout').style.display = on ? '' : 'none';
+}
+
+function login() {
+  if (!clientId()) { toast('請先在 ⚙️ 設定填入 OAuth 用戶端 ID', 'bad'); openSet(); return; }
+  if (!window.google?.accounts?.oauth2) { toast('Google 登入元件還沒載入（需要連上網路）', 'bad'); return; }
+  if (!S.tokenClient && !initTokenClient()) { toast('OAuth 未就緒', 'bad'); return; }
+  S.tokenClient.requestAccessToken({ prompt: S.token ? '' : 'consent' });
+}
+
+function logout() {
+  if (S.token && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(S.token, () => {});
+  S.token = null; S.tokenExp = 0; setAuth(false); cache.clear();
+  $('#folders').innerHTML = '<div class="empty">登入 Google 後即可瀏覽資料夾</div>';
+  toast('已登出');
+}
+
+function tokenOk() { return S.token && Date.now() < S.tokenExp; }
+
+async function driveFetch(url, opts) {
+  if (!tokenOk()) throw new Error('尚未登入 Google（或憑證已過期，請重新登入）');
+  const r = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + S.token, ...(opts?.headers || {}) } });
+  if (!r.ok) {
+    let detail = '';
+    try { detail = (await r.json())?.error?.message || ''; } catch (e) {}
+    if (r.status === 401) { S.token = null; setAuth(false); }
+    throw new Error(`Drive ${r.status} ${detail}`);
+  }
+  return r;
+}
+
+/* =========================================================================
+   3) Drive 資料夾瀏覽 / 掃描
+   ========================================================================= */
+const F_FIELDS = 'nextPageToken,files(id,name,mimeType,size,fileExtension,modifiedTime,shortcutDetails(targetId,targetMimeType))';
+const IS_FOLDER = (f) => f.mimeType === 'application/vnd.google-apps.folder';
+
+async function listFolder(id) {
+  const out = []; let page = '';
+  do {
+    const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+    const u = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${encodeURIComponent(F_FIELDS)}` +
+              `&pageSize=1000&orderBy=folder,name&supportsAllDrives=true&includeItemsFromAllDrives=true` +
+              (page ? `&pageToken=${page}` : '');
+    const j = await (await driveFetch(u)).json();
+    for (const f of (j.files || [])) {
+      if (f.mimeType === 'application/vnd.google-apps.shortcut' && f.shortcutDetails?.targetId) {
+        out.push({ ...f, id: f.shortcutDetails.targetId, mimeType: f.shortcutDetails.targetMimeType || '' });
+      } else out.push(f);
+    }
+    page = j.nextPageToken || '';
+  } while (page);
+  return out;
+}
+
+async function browse(id, name) {
+  if (!tokenOk()) { toast('請先登入 Google', 'bad'); return; }
+  const box = $('#folders');
+  box.innerHTML = '<div class="empty">讀取中…</div>';
+  try {
+    const items = await listFolder(id);
+    S.folder = { id, name: name || id };
+    LS.set('lastFolder', S.folder);
+    drawCrumbs();
+    const dirs = items.filter(IS_FOLDER).sort((a, b) => AP.natCmp(a.name, b.name));
+    const auds = items.filter(AP.isAudioFile).sort((a, b) => AP.natCmp(a.name, b.name));
+    box.innerHTML = '';
+    if (!dirs.length && !auds.length) box.innerHTML = '<div class="empty">這個資料夾沒有子資料夾或音檔</div>';
+    for (const d of dirs) {
+      const el = document.createElement('div');
+      el.className = 'fitem';
+      el.innerHTML = `<span>📁</span><span class="n"></span><span class="meta">›</span>`;
+      el.querySelector('.n').textContent = d.name;
+      el.onclick = () => { S.stack.push({ id: S.folder.id, name: S.folder.name }); browse(d.id, d.name); };
+      box.appendChild(el);
+    }
+    S.curAuds = auds.map(driveTrack);
+    for (const t of S.curAuds) {
+      const el = document.createElement('div');
+      el.className = 'fitem aud';
+      el.innerHTML = `<input type="checkbox"><span>🎵</span><span class="n"></span><span class="meta">${AP.fmtSize(t.size)}</span>`;
+      el.querySelector('.n').textContent = t.name;
+      const cb = el.querySelector('input');
+      cb.checked = S.sel.has(t.key);
+      const flip = (on) => { if (on) S.sel.set(t.key, t); else S.sel.delete(t.key); cb.checked = on; paintSel(); };
+      cb.onclick = (e) => { e.stopPropagation(); flip(cb.checked); };
+      el.onclick = () => flip(!cb.checked);
+      box.appendChild(el);
+    }
+    $('#btnScan').textContent = `🔍 掃描此資料夾（取代清單，${auds.length} 首）`;
+    paintSel();
+  } catch (e) {
+    box.innerHTML = '<div class="empty">讀取失敗</div>';
+    toast(e.message, 'bad');
+  }
+}
+
+function drawCrumbs() {
+  const c = $('#crumbs'); c.innerHTML = '';
+  S.stack.forEach((s, i) => {
+    const el = document.createElement('span'); el.className = 'c'; el.textContent = s.name;
+    el.onclick = () => { const t = S.stack[i]; S.stack = S.stack.slice(0, i); browse(t.id, t.name); };
+    c.appendChild(el); c.appendChild(Object.assign(document.createElement('span'), { textContent: ' / ' }));
+  });
+  c.appendChild(Object.assign(document.createElement('b'), { textContent: S.folder.name }));
+}
+
+/** Drive 檔案 → 曲目物件（掃描與勾選共用同一個 key，才能正確去重） */
+function driveTrack(f, prefix) {
+  return { key: 'd:' + f.id, kind: 'drive', id: f.id, name: f.name,
+           mime: f.mimeType || '', size: Number(f.size) || 0, path: prefix || '' };
+}
+
+function paintSel() {
+  $('#btnAddSel').textContent = `➕ 加入勾選（${S.sel.size}）`;
+  $('#btnAddSel').disabled = S.sel.size === 0;
+}
+
+async function scanFolder(mode) {
+  if (!tokenOk()) { toast('請先登入 Google', 'bad'); return; }
+  const deep = $('#deep').checked;
+  const btn = mode === 'add' ? $('#btnScanAdd') : $('#btnScan'); const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '掃描中…';
+  const found = [];
+  try {
+    const walk = async (id, prefix, depth) => {
+      const items = await listFolder(id);
+      for (const f of items.filter(AP.isAudioFile).sort((a, b) => AP.natCmp(a.name, b.name)))
+        found.push(driveTrack(f, prefix));
+      if (deep && depth < 8) {
+        for (const d of items.filter(IS_FOLDER).sort((a, b) => AP.natCmp(a.name, b.name))) {
+          btn.textContent = `掃描中… ${found.length} 首`;
+          await walk(d.id, prefix ? prefix + ' / ' + d.name : d.name, depth + 1);
+        }
+      }
+    };
+    await walk(S.folder.id, '', 0);
+    if (!found.length) { toast('這個資料夾裡沒有找到音檔', 'bad'); return; }
+    if (mode === 'add') addTracks(found, S.folder.name);
+    else { setTracks(found, S.folder.name); toast(`載入 ${found.length} 首（${S.folder.name}）`, 'ok'); }
+  } catch (e) { toast(e.message, 'bad'); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+/* =========================================================================
+   4) 本機檔案 / 伺服器音樂庫
+   ========================================================================= */
+function addLocalFiles(files) {
+  const list = [...files].filter((f) => AP.isAudioFile(f));
+  if (!list.length) { toast('沒有挑到可播放的音檔', 'bad'); return; }
+  list.sort((a, b) => AP.natCmp(a.webkitRelativePath || a.name, b.webkitRelativePath || b.name));
+  const tr = list.map((f) => {
+    const rel = f.webkitRelativePath || f.name;
+    return { key: 'l:' + rel + ':' + f.size, kind: 'local', file: f, name: f.name,
+             mime: f.type || '', size: f.size, path: rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '' };
+  });
+  if ($('#localAdd').checked) addTracks(tr, '本機檔案');
+  else { setTracks(tr, '本機檔案'); toast(`載入 ${tr.length} 首本機音檔`, 'ok'); }
+}
+
+async function loadLibrary() {
+  const box = $('#libList');
+  box.innerHTML = '<div class="empty">讀取中…</div>';
+  try {
+    const j = await (await fetch('api/local')).json();
+    const files = j.files || [];
+    box.innerHTML = '';
+    if (!files.length) { box.innerHTML = `<div class="empty">${(j.root || 'music')} 底下沒有音檔<br>把音檔丟進去再按重新讀取</div>`; return; }
+    const groups = new Map();
+    for (const f of files) {
+      const g = f.dir || '(根目錄)';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(f);
+    }
+    const srvTrack = (f) => ({
+      key: 's:' + f.rel, kind: 'server', url: 'music/' + f.rel.split('/').map(encodeURIComponent).join('/'),
+      name: f.name, mime: '', size: f.size, path: f.dir, rel: f.rel,
+    });
+    const mk = (label, arr) => {
+      const el = document.createElement('div');
+      el.className = 'fitem';
+      el.innerHTML = `<span>🗂️</span><span class="n"></span><span class="meta">${arr.length} 首</span>` +
+                     `<button class="btn sm" title="加入現有清單">➕</button>`;
+      el.querySelector('.n').textContent = label;
+      el.querySelector('button').onclick = (e) => { e.stopPropagation(); addTracks(arr.map(srvTrack), label); };
+      el.onclick = () => {
+        setTracks(arr.map(srvTrack), label);
+        toast(`載入 ${arr.length} 首（${label}）`, 'ok');
+      };
+      return el;
+    };
+    if (groups.size > 1) box.appendChild(mk('★ 全部（' + files.length + ' 首）', files));
+    for (const [g, arr] of [...groups.entries()].sort((a, b) => AP.natCmp(a[0], b[0]))) box.appendChild(mk(g, arr));
+  } catch (e) {
+    box.innerHTML = '<div class="empty">讀不到本機伺服器<br>請用 <code>開啟播放器.bat</code> 啟動</div>';
+  }
+}
+
+/* =========================================================================
+   5) 播放清單
+   ========================================================================= */
+/** 取代整份清單（來源掃描用）；plName 不變＝繼續存進同一個自選清單 */
+function setTracks(tr, label) {
+  S.tracks = tr; S.index = -1; S.plLabel = label || '';
+  rebuildOrder();
+  drawList();
+  stop(true);
+  persistLast(); autoSavePl();
+  if (tr.length) loadTrack(0, false);
+}
+
+/** 加入曲目到現有清單（自選清單的核心）；靠 key 去重，回傳實際加入數 */
+function addTracks(tr, label) {
+  const have = new Set(S.tracks.map((t) => t.key));
+  const add = tr.filter((t) => !have.has(t.key));
+  const dup = tr.length - add.length;
+  if (!add.length) { toast(`這 ${dup} 首已經在清單裡了`); return 0; }
+  const wasEmpty = !S.tracks.length;
+  S.tracks = S.tracks.concat(add);
+  if (!S.plLabel) S.plLabel = label || '自選清單';
+  rebuildOrder(); drawList(); persistLast(); autoSavePl();
+  if (wasEmpty) loadTrack(0, false);
+  toast(`已加入 ${add.length} 首${dup ? `（略過重複 ${dup} 首）` : ''}${S.plName ? '，已存進「' + S.plName + '」' : ''}`, 'ok');
+  return add.length;
+}
+
+const slim = (t) => ({ key: t.key, kind: t.kind, id: t.id, url: t.url, rel: t.rel, name: t.name, mime: t.mime, size: t.size, path: t.path });
+const savable = () => S.tracks.filter((t) => t.kind !== 'local').map(slim);
+function persistLast() { LS.set('last', { name: S.plName, label: S.plLabel, tracks: savable() }); }
+
+function paintPlName() {
+  const b = $('#plName');
+  b.textContent = S.plName ? '📋 ' + S.plName : '未命名（改動不會自動保存）';
+  b.className = 'badge' + (S.plName ? ' on' : '');
+  $('#plSel').value = playlists()[S.plName] ? S.plName : '';
+}
+
+/** 有名字的自選清單＝每次改動就自動存回去 */
+function autoSavePl() {
+  if (!S.plName) { paintPlName(); return; }
+  const pl = playlists();
+  pl[S.plName] = { label: S.plName, tracks: savable(), starts: pickStarts(), ranges: pickRanges() };
+  LS.set('playlists', pl); drawPl(); paintPlName();
+}
+function pickStarts() {
+  const o = {};
+  for (const t of S.tracks) if (S.starts[t.key]) o[t.key] = S.starts[t.key];
+  return o;
+}
+function pickRanges() {
+  const o = {};
+  for (const t of S.tracks) if (S.ranges[t.key]) o[t.key] = S.ranges[t.key];
+  return o;
+}
+
+function rebuildOrder() { S.order = AP.buildOrder(S.tracks.length, S.shuffle, S.index); }
+
+function drawList() {
+  const box = $('#tracks'); const q = $('#q').value.trim().toLowerCase();
+  $('#plCount').textContent = S.tracks.length + ' 首';
+  box.innerHTML = '';
+  if (!S.tracks.length) {
+    box.innerHTML = '<div class="empty">左邊挑一個來源建立播放清單 👈<br>Drive 資料夾 / 本機檔案 / 伺服器音樂庫</div>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  S.tracks.forEach((t, i) => {
+    if (q && !(t.name + ' ' + (t.path || '')).toLowerCase().includes(q)) return;
+    const el = document.createElement('div');
+    el.className = 'tr' + (i === S.index ? ' on' : '') + (t.err ? ' err' : '');
+    el.draggable = true; el.dataset.i = i;
+    const st = S.starts[t.key];
+    const meta = [t.dur ? AP.fmtTime(t.dur) : '', st ? '↩️' + AP.fmtTime(st) : '', AP.isWeak(t.name) ? '⚠️' : '', AP.fmtSize(t.size)].filter(Boolean).join(' · ');
+    el.innerHTML = `<span class="i">${i + 1}</span><span class="t"></span><span class="meta">${meta}</span><span class="x" title="移除">✕</span>`;
+    const tn = el.querySelector('.t');
+    tn.textContent = t.name;
+    if (t.path) tn.title = t.path + ' / ' + t.name; else tn.title = t.name;
+    el.onclick = (e) => { if (e.target.classList.contains('x')) { removeTrack(i); return; } loadTrack(i, true); };
+    el.ondragstart = (e) => { e.dataTransfer.setData('text/i', String(i)); el.classList.add('drag'); };
+    el.ondragend = () => el.classList.remove('drag');
+    el.ondragover = (e) => e.preventDefault();
+    el.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); moveTrack(Number(e.dataTransfer.getData('text/i')), i); };
+    frag.appendChild(el);
+  });
+  const shown = frag.childNodes.length;   // append 之後 frag 會被清空，先記下來
+  box.appendChild(frag);
+  if (!shown && q) box.innerHTML = '<div class="empty">沒有符合「' + q + '」的曲目</div>';
+}
+
+function moveTrack(from, to) {
+  if (isNaN(from) || from === to) return;
+  const cur = S.tracks[S.index];
+  const [t] = S.tracks.splice(from, 1);
+  S.tracks.splice(to, 0, t);
+  S.index = cur ? S.tracks.indexOf(cur) : -1;
+  rebuildOrder(); drawList(); persistLast(); autoSavePl();
+}
+
+function removeTrack(i) {
+  const cur = S.tracks[S.index];
+  S.tracks.splice(i, 1);
+  S.index = cur && cur !== S.tracks[i] ? S.tracks.indexOf(cur) : Math.min(i, S.tracks.length - 1);
+  if (S.index < 0) { au.pause(); au.removeAttribute('src'); paintNow(null); }
+  rebuildOrder(); drawList(); persistLast(); autoSavePl();
+}
+
+function sortTracks(rev) {
+  const cur = S.tracks[S.index];
+  if (rev) S.tracks.reverse();
+  else S.tracks.sort((a, b) => AP.natCmp((a.path || '') + '/' + a.name, (b.path || '') + '/' + b.name));
+  S.index = cur ? S.tracks.indexOf(cur) : -1;
+  rebuildOrder(); drawList(); persistLast(); autoSavePl();
+}
+
+/* ---- 已存清單 ---- */
+function playlists() { return LS.get('playlists', {}); }
+function drawPl() {
+  const sel = $('#plSel'); const pl = playlists(); const keep = sel.value;
+  sel.innerHTML = '<option value="">— 開啟已存清單 —</option>';
+  for (const n of Object.keys(pl).sort(AP.natCmp)) {
+    const o = document.createElement('option'); o.value = n; o.textContent = `📋 ${n}（${(pl[n].tracks || []).length}）`;
+    sel.appendChild(o);
+  }
+  sel.value = pl[keep] ? keep : (pl[S.plName] ? S.plName : '');
+}
+/** 建立一份空的自選清單，之後從任一來源「加入」的曲目都會自動存進它 */
+function newPl() {
+  const name = (prompt('新自選清單的名稱：', suggestName()) || '').trim();
+  if (!name) return;
+  if (playlists()[name] && !confirm(`已經有「${name}」，要覆蓋成空清單嗎？`)) return;
+  S.plName = name; S.plLabel = name;
+  S.tracks = []; S.index = -1;
+  au.pause(); au.removeAttribute('src'); paintNow(null);
+  rebuildOrder(); drawList(); autoSavePl(); persistLast();
+  toast(`已建立「${name}」— 現在到左邊挑歌按 ➕ 加入`, 'ok');
+}
+function suggestName() {
+  const pl = playlists();
+  for (let i = 1; i < 99; i++) if (!pl['我的清單 ' + i]) return '我的清單 ' + i;
+  return '我的清單';
+}
+
+/** 儲存：已命名就直接存回，未命名就問名字 */
+function savePl(forceAsk) {
+  if (!S.tracks.length) { toast('清單是空的', 'bad'); return; }
+  let name = S.plName;
+  if (!name || forceAsk) {
+    name = (prompt('清單名稱：', S.plName || S.plLabel || suggestName()) || '').trim();
+    if (!name) return;
+  }
+  const local = S.tracks.filter((t) => t.kind === 'local').length;
+  if (local) toast(`本機檔案無法存進清單（瀏覽器安全限制），略過 ${local} 首`);
+  if (local === S.tracks.length) return;
+  S.plName = name;
+  autoSavePl(); persistLast();
+  toast('已儲存「' + name + '」', 'ok');
+}
+
+function renamePl() {
+  if (!S.plName) { savePl(true); return; }
+  const name = (prompt('改成什麼名字？', S.plName) || '').trim();
+  if (!name || name === S.plName) return;
+  const pl = playlists();
+  if (pl[name] && !confirm(`「${name}」已存在，要覆蓋嗎？`)) return;
+  delete pl[S.plName]; LS.set('playlists', pl);
+  S.plName = name; S.plLabel = name;
+  autoSavePl(); persistLast(); toast('已改名為「' + name + '」', 'ok');
+}
+
+function openPl(name) {
+  const p = playlists()[name];
+  if (!p) return;
+  S.plName = name;
+  Object.assign(S.starts, p.starts || {}); LS.set('starts', S.starts);
+  Object.assign(S.ranges, p.ranges || {}); LS.set('ranges', S.ranges);
+  setTracks(p.tracks.map((t) => ({ ...t })), name);
+  paintPlName();
+  toast(`載入清單「${name}」（${p.tracks.length} 首）`, 'ok');
+}
+
+function exportPl() {
+  if (!S.tracks.length) { toast('清單是空的', 'bad'); return; }
+  const data = { app: 'audioplayer', v: 1, name: S.plName || S.plLabel || '播放清單', tracks: savable(), starts: pickStarts(), ranges: pickRanges() };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = (data.name || 'playlist').replace(/[\\/:*?"<>|]/g, '_') + '.json';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('已匯出 ' + a.download, 'ok');
+}
+
+/** 匯入 json（相容「只有陣列」的簡化格式）；merge=加入現有清單 */
+function importPl(text, merge) {
+  let j;
+  try { j = JSON.parse(text); } catch (e) { toast('這不是合法的 JSON', 'bad'); return 0; }
+  const arr = Array.isArray(j) ? j : (j.tracks || []);
+  const tr = arr.filter((t) => t && t.name && (t.id || t.url || t.rel)).map((t) => ({
+    key: t.key || (t.kind === 'drive' ? 'd:' + t.id : 's:' + (t.rel || t.url)),
+    kind: t.kind || (t.id ? 'drive' : 'server'),
+    id: t.id, url: t.url, rel: t.rel, name: t.name, mime: t.mime || '', size: Number(t.size) || 0, path: t.path || '',
+  }));
+  if (!tr.length) { toast('檔案裡沒有可用的曲目', 'bad'); return 0; }
+  if (j && j.starts) { Object.assign(S.starts, j.starts); LS.set('starts', S.starts); }
+  if (j && j.ranges) { Object.assign(S.ranges, j.ranges); LS.set('ranges', S.ranges); }
+  if (merge) return addTracks(tr, j.name || '匯入清單');
+  S.plName = ''; setTracks(tr, (j && j.name) || '匯入清單');
+  paintPlName(); toast(`已匯入 ${tr.length} 首`, 'ok');
+  return tr.length;
+}
+
+/* =========================================================================
+   6) 播放核心
+   ========================================================================= */
+async function srcFor(t, onProg) {
+  if (t.kind === 'server') return t.url;
+  if (t.kind === 'local') {
+    if (!t._url) t._url = URL.createObjectURL(t.file);
+    return t._url;
+  }
+  const hit = cache.get(t.key);
+  if (hit) return hit;
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${t.id}?alt=media&supportsAllDrives=true`);
+  const total = Number(r.headers.get('content-length')) || t.size || 0;
+  let blob;
+  if (r.body && total && onProg) {
+    const rd = r.body.getReader(); const parts = []; let got = 0;
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      parts.push(value); got += value.length; onProg(got / total);
+    }
+    blob = new Blob(parts, { type: t.mime || 'audio/mpeg' });
+  } else blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  cache.put(t.key, url, blob.size);
+  return url;
+}
+
+function dl(p) {
+  const b = $('#dlbar');
+  if (p == null) { b.classList.remove('on'); return; }
+  b.classList.add('on'); b.firstElementChild.style.width = Math.round(p * 100) + '%';
+}
+
+let loadSeq = 0;
+async function loadTrack(i, autoplay, seekTo) {
+  if (i < 0 || i >= S.tracks.length) return;
+  const t = S.tracks[i];
+  S.index = i; drawList(); paintNow(t);
+  S.peaks = null; waveSeq++;
+  const rg = S.ranges[t.key];                       // 每首各自記住的重複範圍
+  S.ab = rg ? { a: rg.a, b: rg.b, on: S.ab.on } : { a: null, b: null, on: false };
+  paintAB();
+  S.startAt = S.perTrack ? (S.starts[t.key] || 0) : AP.parseTime($('#startAt').value) || 0;
+  $('#startAt').value = S.startAt ? AP.fmtTime(S.startAt) : '';
+  const my = ++loadSeq;
+  try {
+    const url = await srcFor(t, (p) => { if (my === loadSeq) dl(p); });
+    if (my !== loadSeq) return;
+    dl(null);
+    pendingSeek = seekTo != null ? seekTo : S.startAt;
+    au.src = url;
+    applyRate();
+    au.load();
+    if (autoplay) { try { await au.play(); } catch (e) { toast('瀏覽器阻擋自動播放，請按 ▶', 'bad'); } }
+    t.err = false;
+  } catch (e) {
+    dl(null); t.err = true; drawList();
+    toast('載入失敗：' + e.message, 'bad');
+  }
+}
+
+let pendingSeek = null;
+au.addEventListener('loadedmetadata', () => {
+  const t = S.tracks[S.index];
+  if (t) { t.dur = au.duration; drawList(); }
+  $('#tDur').textContent = AP.fmtTime(au.duration);
+  $('#seek').disabled = false;
+  applyRate();
+  if (pendingSeek != null) { try { au.currentTime = AP.clampSeek(pendingSeek, au.duration); } catch (e) {} pendingSeek = null; }
+  paintAB();
+  buildWave(t);
+});
+
+au.addEventListener('timeupdate', () => {
+  if (S.ab.on && S.ab.a != null && S.ab.b != null && au.currentTime >= S.ab.b) {
+    au.currentTime = S.ab.a;
+    applyRate();                                   // 跳回 A 點後速度／音高設定保持不變
+    if (au.paused) au.play().catch(() => {});
+    return;
+  }
+  if (!S.seeking) paintTime();
+});
+au.addEventListener('play', () => { $('#btnPlay').textContent = '⏸'; prefetchNext(); });
+au.addEventListener('pause', () => { $('#btnPlay').textContent = '▶'; });
+au.addEventListener('ended', () => {
+  if (S.ab.on && S.ab.a != null) { au.currentTime = S.ab.a; au.play().catch(() => {}); return; }
+  const n = AP.nextIndex({ index: S.index, order: S.order, repeat: S.repeat, manual: false });
+  if (n < 0) { $('#btnPlay').textContent = '▶'; toast('清單播完'); return; }
+  if (n === S.index && S.repeat === 'one') { au.currentTime = AP.clampSeek(S.startAt, au.duration); au.play().catch(() => {}); return; }
+  loadTrack(n, true);
+});
+au.addEventListener('error', () => {
+  if (!au.getAttribute('src')) return;
+  const t = S.tracks[S.index];
+  if (t) { t.err = true; drawList(); }
+  toast('這個檔案瀏覽器播不動' + (t && AP.isWeak(t.name) ? '（' + AP.ext(t.name).toUpperCase() + ' 格式 Chrome 多半不支援）' : ''), 'bad');
+});
+
+function paintNow(t) {
+  $('#now').textContent = t ? t.name : '—';
+  $('#nowSub').textContent = t
+    ? [t.path, AP.fmtSize(t.size), { drive: '☁️ Drive', local: '💻 本機', server: '🗂️ 音樂庫' }[t.kind]].filter(Boolean).join(' · ')
+    : '尚未載入音檔';
+  if (!t) { $('#tCur').textContent = $('#tDur').textContent = '0:00'; $('#seek').value = 0; $('#seek').style.setProperty('--p', '0%'); }
+}
+
+function paintTime() {
+  const d = au.duration || 0;
+  $('#tCur').textContent = AP.fmtTime(au.currentTime);
+  const p = d ? au.currentTime / d : 0;
+  $('#seek').value = Math.round(p * 1000);
+  $('#seek').style.setProperty('--p', (p * 100).toFixed(2) + '%');
+}
+
+function applyRate() {
+  au.playbackRate = S.speed;
+  for (const k of ['preservesPitch', 'mozPreservesPitch', 'webkitPreservesPitch']) if (k in au) au[k] = S.pitch;
+  au.volume = S.vol;
+}
+
+function playPause() {
+  if (!S.tracks.length) { toast('請先建立播放清單', 'bad'); return; }
+  if (S.index < 0) { loadTrack(0, true); return; }
+  if (!au.getAttribute('src')) { loadTrack(S.index, true); return; }
+  if (au.paused) au.play().catch((e) => toast('播放失敗：' + e.message, 'bad'));
+  else au.pause();
+}
+
+/** 停止：暫停並回到起始秒數（quiet=不提示） */
+function stop(quiet) {
+  au.pause();
+  try { if (au.duration) au.currentTime = AP.clampSeek(S.startAt, au.duration); else if (au.getAttribute('src')) pendingSeek = S.startAt; } catch (e) {}
+  paintTime(); $('#btnPlay').textContent = '▶';
+  if (!quiet) toast('已停止（回到 ' + AP.fmtTime(S.startAt) + '）');
+}
+
+function go(dir) {
+  if (!S.tracks.length) return;
+  const n = dir > 0
+    ? AP.nextIndex({ index: S.index, order: S.order, repeat: S.repeat, manual: true })
+    : AP.prevIndex({ index: S.index, order: S.order });
+  if (n >= 0) loadTrack(n, !au.paused || true);
+}
+
+async function prefetchNext() {
+  const n = AP.nextIndex({ index: S.index, order: S.order, repeat: 'all', manual: true });
+  const t = S.tracks[n];
+  if (!t || t.kind !== 'drive' || cache.has(t.key) || !tokenOk()) return;
+  try { await srcFor(t); } catch (e) {}
+}
+
+function setSpeed(v) {
+  S.speed = Math.min(2, Math.max(0.25, Number(v) || 1));
+  LS.set('speed', S.speed);
+  $$('#segSpeed button').forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === S.speed));
+  $('#speedFine').value = String(S.speed);
+  $('#speedTxt').textContent = S.speed.toFixed(2) + '×';
+  applyRate();   // 範圍重複中也照樣立即生效
+}
+function setRepeat(r) {
+  S.repeat = r; LS.set('repeat', r);
+  $$('#segRepeat button').forEach((b) => b.classList.toggle('on', b.dataset.r === r));
+}
+function setShuffle(on) {
+  S.shuffle = on; LS.set('shuffle', on);
+  $('#btnShuffle').classList.toggle('on', on);
+  rebuildOrder();
+}
+
+/* ---- 起始秒數 ---- */
+function readStart() {
+  const v = AP.parseTime($('#startAt').value);
+  if (isNaN(v)) { toast('起始秒數格式看不懂，請填「12」或「1:23」', 'bad'); return null; }
+  S.startAt = v;
+  const t = S.tracks[S.index];
+  if (t && S.perTrack) {
+    if (v) S.starts[t.key] = v; else delete S.starts[t.key];
+    LS.set('starts', S.starts); drawList();
+  }
+  return v;
+}
+
+/* =========================================================================
+   6b) 重複播放範圍（波形框選，作法沿用 ringtone-maker）
+   ========================================================================= */
+function paintAB() {
+  const { a, b, on } = S.ab;
+  $('#btnAB').classList.toggle('on', !!on);
+  const len = (a != null && b != null) ? ` ＝ ${(b - a).toFixed(1)} 秒` : '';
+  $('#abTxt').textContent = (a == null && b == null) ? '未設定（在波形上拖曳即可框選）'
+    : `${a == null ? '—' : AP.fmtTime(a)} → ${b == null ? '—' : AP.fmtTime(b)}${len}${on ? ' 🔁重複中' : ''}`;
+  if (document.activeElement !== $('#rangeA')) $('#rangeA').value = a == null ? '' : AP.fmtTime(a);
+  if (document.activeElement !== $('#rangeB')) $('#rangeB').value = b == null ? '' : AP.fmtTime(b);
+  const m = $('#abmark'), d = au.duration || 0;
+  m.innerHTML = (a != null && b != null && d)
+    ? `<i style="left:${(a / d * 100).toFixed(2)}%;width:${(Math.max(0, b - a) / d * 100).toFixed(2)}%"></i>` : '';
+  drawWave();
+}
+
+/** 設定重複範圍（單一入口：夾範圍、記住、重畫） */
+function setRange(a, b, opt) {
+  const d = au.duration || 0;
+  const r = AP.normRange(a, b, d, 0.2);
+  S.ab.a = r.a; S.ab.b = r.b;
+  if (opt && opt.on != null) S.ab.on = opt.on;
+  const t = S.tracks[S.index];
+  if (t) { S.ranges[t.key] = { a: r.a, b: r.b }; LS.set('ranges', S.ranges); }
+  paintAB(); autoSavePl();
+  return r;
+}
+function clearRange() {
+  S.ab = { a: null, b: null, on: false };
+  const t = S.tracks[S.index];
+  if (t) { delete S.ranges[t.key]; LS.set('ranges', S.ranges); }
+  paintAB(); autoSavePl();
+}
+
+/* ---- 波形 ---- */
+const cv = $('#wave'), cx = cv.getContext('2d');
+const peakCache = new Map();          // key → 峰值陣列
+const WAVE_N = 520;
+const cssv = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const X = (t) => (au.duration ? (t / au.duration) * cv.clientWidth : 0);
+const Tm = (x) => (au.duration ? Math.max(0, Math.min(au.duration, (x / cv.clientWidth) * au.duration)) : 0);
+
+function sizeWave() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 600, h = cv.clientHeight || 96;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+
+function drawWave() {
+  const { w, h } = sizeWave();
+  cx.clearRect(0, 0, w, h);
+  const p = S.peaks;
+  $('#waveHint').style.display = (p && p.length) ? 'none' : '';
+  if (!p || !p.length) return;
+  const mid = h / 2, n = p.length, bw = w / n;
+  const has = S.ab.a != null && S.ab.b != null;
+  const sx = has ? X(S.ab.a) : 0, ex = has ? X(S.ab.b) : 0;
+  for (let i = 0; i < n; i++) {
+    const x = i * bw, ph = Math.max(2, p[i] * (h * 0.9));
+    const inSel = has && x >= sx - bw && x <= ex;
+    cx.fillStyle = inSel ? '#e8f7ff' : cssv('--dim') || '#8b98a5';
+    cx.globalAlpha = inSel ? 1 : 0.45;
+    cx.fillRect(x, mid - ph / 2, Math.max(1, bw - 0.8), ph);
+  }
+  cx.globalAlpha = 1;
+  if (has) {
+    cx.strokeStyle = S.ab.on ? cssv('--accent2') : cssv('--accent');
+    cx.lineWidth = 2;
+    rr(sx, 2, ex - sx, h - 4, 8); cx.stroke();
+    cx.fillStyle = cx.strokeStyle;
+    for (const x of [sx, ex]) { rr(x - 3.5, mid - 14, 7, 28, 3.5); cx.fill(); }
+  }
+  if (au.duration) {                              // 播放頭
+    const px = X(au.currentTime);
+    cx.strokeStyle = '#fff'; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.moveTo(px, 0); cx.lineTo(px, h); cx.stroke();
+  }
+}
+function rr(x, y, w, h, r) {
+  r = Math.min(r, Math.abs(w) / 2, h / 2);
+  cx.beginPath(); cx.moveTo(x + r, y);
+  cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r);
+  cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath();
+}
+
+/* 舊 Safari 沒有 File.arrayBuffer()，也只有 callback 版 decodeAudioData */
+function readAB(file) {
+  if (file.arrayBuffer) return file.arrayBuffer();
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error('讀檔失敗'));
+    r.readAsArrayBuffer(file);
+  });
+}
+function decodeAB(ctx, ab) {
+  return new Promise((res, rej) => {
+    const p = ctx.decodeAudioData(ab, res, rej);      // 同時給 callback 與 promise，兩種瀏覽器都吃
+    if (p && typeof p.then === 'function') p.then(res, rej);
+  });
+}
+
+const MAX_WAVE_BYTES = 90 * 1048576;
+async function buildWave(t) {
+  if (!t) { S.peaks = null; drawWave(); return; }
+  if (peakCache.has(t.key)) { S.peaks = peakCache.get(t.key); drawWave(); return; }
+  if (t.size && t.size > MAX_WAVE_BYTES) { S.peaks = null; $('#waveHint').textContent = '檔案太大，略過波形（仍可用上面的秒數欄位指定範圍）'; drawWave(); return; }
+  const src = au.currentSrc || au.src;
+  if (!src) return;
+  const hint = $('#waveHint');
+  hint.textContent = '分析波形中…'; hint.classList.add('busy'); S.peaks = null; drawWave();
+  const my = ++waveSeq;
+  try {
+    const ab = t.kind === 'local' && t.file ? await readAB(t.file) : await (await fetch(src)).arrayBuffer();
+    const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await decodeAB(ctxA, ab);
+    const pk = AP.peaksOf(buf, WAVE_N);
+    try { ctxA.close(); } catch (e) {}
+    if (my !== waveSeq) return;
+    peakCache.set(t.key, pk);
+    if (peakCache.size > 24) peakCache.delete(peakCache.keys().next().value);
+    S.peaks = pk;
+  } catch (e) {
+    if (my !== waveSeq) return;
+    hint.textContent = '這個格式沒辦法分析波形，仍可用秒數欄位指定範圍';
+  } finally {
+    hint.classList.remove('busy');
+    drawWave();
+  }
+}
+let waveSeq = 0;
+
+/* ---- 波形上的拖曳：把手／整段移動／新框選；沒移動就是跳播 ---- */
+let wdrag = null;
+cv.addEventListener('pointerdown', (ev) => {
+  if (!au.duration) return;
+  try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+  const x = ev.offsetX;
+  const has = S.ab.a != null && S.ab.b != null;
+  const sx = has ? X(S.ab.a) : -99, ex = has ? X(S.ab.b) : -99;
+  let mode = 'new';
+  if (has && Math.abs(x - sx) < 12) mode = 'l';
+  else if (has && Math.abs(x - ex) < 12) mode = 'r';
+  else if (has && x > sx && x < ex) mode = 'move';
+  wdrag = { mode, x0: x, t0: Tm(x), a0: S.ab.a, b0: S.ab.b, moved: false };
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!wdrag || !au.duration) return;
+  const x = ev.offsetX, t = Tm(x);
+  if (Math.abs(x - wdrag.x0) > 3) wdrag.moved = true;
+  if (wdrag.mode === 'new') {
+    if (!wdrag.moved) return;
+    setRange(wdrag.t0, t);
+  } else if (wdrag.mode === 'l') setRange(t, wdrag.b0);
+  else if (wdrag.mode === 'r') setRange(wdrag.a0, t);
+  else {
+    const len = wdrag.b0 - wdrag.a0;
+    let s = wdrag.a0 + (t - wdrag.t0);
+    s = Math.max(0, Math.min(s, au.duration - len));
+    setRange(s, s + len);
+  }
+});
+function endWDrag(ev) {
+  if (!wdrag) return;
+  const d = wdrag; wdrag = null;
+  if (!d.moved) {                       // 純點擊 → 跳到該處播放
+    if (au.duration) { au.currentTime = AP.clampSeek(d.t0, au.duration); paintTime(); drawWave(); }
+    return;
+  }
+  if (S.ab.a != null && S.ab.b != null) toast(`重複範圍 ${AP.fmtTime(S.ab.a)} – ${AP.fmtTime(S.ab.b)}（按 🔁 開始重複）`);
+}
+cv.addEventListener('pointerup', endWDrag);
+cv.addEventListener('pointercancel', () => { wdrag = null; });
+window.addEventListener('resize', drawWave);
+
+/* 播放時讓播放頭動起來 */
+let raf = 0;
+function tick() { if (!au.paused) { drawWave(); raf = requestAnimationFrame(tick); } else raf = 0; }
+au.addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(tick); });
+
+/* =========================================================================
+   7) 綁事件
+   ========================================================================= */
+$$('.tab').forEach((t) => t.onclick = () => {
+  $$('.tab').forEach((x) => x.classList.toggle('on', x === t));
+  $$('.pane').forEach((p) => p.classList.toggle('on', p.id === 'pane' + t.dataset.pane[0].toUpperCase() + t.dataset.pane.slice(1)));
+});
+
+$('#btnLogin').onclick = login;
+$('#btnLogout').onclick = logout;
+$('#btnScan').onclick = () => scanFolder('replace');
+$('#btnScanAdd').onclick = () => scanFolder('add');
+$('#btnAddSel').onclick = () => {
+  if (!S.sel.size) { toast('先勾選要加入的曲目', 'bad'); return; }
+  addTracks([...S.sel.values()], S.folder.name);
+  S.sel.clear(); paintSel();
+  $$('#folders .fitem.aud input').forEach((c) => (c.checked = false));
+};
+$('#btnSelAll').onclick = () => {
+  if (!S.curAuds.length) { toast('這個資料夾沒有音檔', 'bad'); return; }
+  for (const t of S.curAuds) S.sel.set(t.key, t);
+  $$('#folders .fitem.aud input').forEach((c) => (c.checked = true));
+  paintSel();
+};
+$('#btnSelNone').onclick = () => { S.sel.clear(); $$('#folders .fitem.aud input').forEach((c) => (c.checked = false)); paintSel(); };
+$('#btnUp').onclick = () => { const p = S.stack.pop(); if (p) browse(p.id, p.name); else browse('root', '我的雲端硬碟'); };
+$('#btnRoot').onclick = () => { S.stack = []; browse('root', '我的雲端硬碟'); };
+$('#btnGo').onclick = () => {
+  const id = AP.parseFolderId($('#fid').value);
+  if (!id) { toast('看不出資料夾 ID，請貼 Drive 資料夾網址', 'bad'); return; }
+  S.stack = []; browse(id, id === 'root' ? '我的雲端硬碟' : '（指定資料夾）');
+};
+$('#fid').onkeydown = (e) => { if (e.key === 'Enter') $('#btnGo').click(); };
+
+$('#btnPickDir').onclick = () => $('#fileDir').click();
+$('#btnPickFiles').onclick = () => $('#fileMulti').click();
+$('#fileDir').onchange = (e) => addLocalFiles(e.target.files);
+$('#fileMulti').onchange = (e) => addLocalFiles(e.target.files);
+const dz = $('#drop');
+['dragenter', 'dragover'].forEach((k) => dz.addEventListener(k, (e) => { e.preventDefault(); dz.classList.add('hot'); }));
+['dragleave', 'drop'].forEach((k) => dz.addEventListener(k, () => dz.classList.remove('hot')));
+dz.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (!entry) return;
+    if (entry.isFile) {
+      const f = await new Promise((res) => entry.file(res, () => res(null)));
+      if (f) { try { Object.defineProperty(f, 'webkitRelativePath', { value: prefix + f.name }); } catch (x) {} out.push(f); }
+    } else if (entry.isDirectory) {
+      const rd = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res) => rd.readEntries(res, () => res([])));
+        if (!batch.length) break;
+        for (const en of batch) await walk(en, prefix + entry.name + '/');
+      }
+    }
+  };
+  const items = [...(e.dataTransfer.items || [])];
+  const entries = items.map((it) => it.webkitGetAsEntry?.()).filter(Boolean);
+  if (entries.length) { for (const en of entries) await walk(en, ''); addLocalFiles(out); }
+  else addLocalFiles(e.dataTransfer.files || []);
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => e.preventDefault());
+
+$('#btnLib').onclick = loadLibrary;
+
+$('#btnPlay').onclick = playPause;
+$('#btnStop').onclick = () => stop(false);
+$('#btnPrev').onclick = () => go(-1);
+$('#btnNext').onclick = () => go(1);
+$('#segSpeed').onclick = (e) => { const b = e.target.closest('button'); if (b) setSpeed(b.dataset.s); };
+$('#segRepeat').onclick = (e) => { const b = e.target.closest('button'); if (b) setRepeat(b.dataset.r); };
+$('#btnShuffle').onclick = () => setShuffle(!S.shuffle);
+$('#pitch').onchange = (e) => { S.pitch = e.target.checked; LS.set('pitch', S.pitch); applyRate(); };
+$('#perTrack').onchange = (e) => { S.perTrack = e.target.checked; LS.set('perTrack', S.perTrack); };
+
+$('#seek').oninput = (e) => {
+  S.seeking = true;
+  const d = au.duration || 0;
+  const t = d * (e.target.value / 1000);
+  $('#tCur').textContent = AP.fmtTime(t);
+  e.target.style.setProperty('--p', (e.target.value / 10).toFixed(2) + '%');
+};
+$('#seek').onchange = (e) => {
+  const d = au.duration || 0;
+  if (d) { try { au.currentTime = AP.clampSeek(d * (e.target.value / 1000), d); } catch (x) {} }
+  S.seeking = false;
+};
+
+$('#btnStartHere').onclick = () => { $('#startAt').value = AP.fmtTime(au.currentTime || 0); readStart(); };
+$('#btnStartGo').onclick = () => {
+  const v = readStart(); if (v == null) return;
+  if (S.index < 0) { loadTrack(0, true); return; }
+  if (au.duration) { au.currentTime = AP.clampSeek(v, au.duration); au.play().catch(() => {}); }
+  else loadTrack(S.index, true, v);
+};
+$('#startAt').onchange = () => readStart();
+$('#startAt').onkeydown = (e) => { if (e.key === 'Enter') $('#btnStartGo').click(); };
+
+$('#btnA').onclick = () => setRange(au.currentTime || 0, S.ab.b != null && S.ab.b > (au.currentTime || 0) ? S.ab.b : (au.duration || (au.currentTime || 0) + 10));
+$('#btnB').onclick = () => setRange(S.ab.a != null ? S.ab.a : 0, au.currentTime || 0);
+$('#btnABAll').onclick = () => { if (!au.duration) { toast('先載入音檔', 'bad'); return; } setRange(0, au.duration); };
+$('#btnAB').onclick = () => {
+  if (S.ab.a == null || S.ab.b == null) { toast('先框出範圍（在波形上拖曳，或填兩個秒數欄位）', 'bad'); return; }
+  S.ab.on = !S.ab.on; paintAB();
+  if (S.ab.on) {
+    au.currentTime = AP.clampSeek(S.ab.a, au.duration); applyRate();
+    au.play().catch(() => {});
+    toast(`範圍重複中 ${AP.fmtTime(S.ab.a)}–${AP.fmtTime(S.ab.b)}　${S.speed.toFixed(2)}×`, 'ok');
+  } else toast('已停止範圍重複');
+};
+$('#btnABClr').onclick = clearRange;
+const onRangeInput = () => {
+  const a = AP.parseTime($('#rangeA').value), b = AP.parseTime($('#rangeB').value);
+  if (isNaN(a) || isNaN(b)) { toast('秒數格式看不懂，請填「12」或「1:23」', 'bad'); return; }
+  if (!$('#rangeA').value && !$('#rangeB').value) { clearRange(); return; }
+  setRange(a, $('#rangeB').value ? b : (au.duration || a + 10));
+};
+$('#rangeA').onchange = onRangeInput;
+$('#rangeB').onchange = onRangeInput;
+$('#rangeA').onkeydown = $('#rangeB').onkeydown = (e) => { if (e.key === 'Enter') onRangeInput(); };
+$('#speedFine').oninput = (e) => setSpeed(e.target.value);
+
+$('#vol').oninput = (e) => { S.vol = Number(e.target.value); au.volume = S.vol; $('#volTxt').textContent = Math.round(S.vol * 100) + '%'; LS.set('vol', S.vol); };
+$('#q').oninput = drawList;
+$('#btnSort').onclick = () => sortTracks(false);
+$('#btnRev').onclick = () => sortTracks(true);
+$('#btnPlNew').onclick = newPl;
+$('#btnPlSave').onclick = () => savePl(false);
+$('#btnPlRename').onclick = renamePl;
+$('#btnPlDel').onclick = () => {
+  const n = $('#plSel').value || S.plName;
+  if (!n) { toast('先選一個已存清單', 'bad'); return; }
+  if (!confirm(`確定刪除清單「${n}」？（音檔本身不會被刪）`)) return;
+  const pl = playlists(); delete pl[n]; LS.set('playlists', pl);
+  if (S.plName === n) { S.plName = ''; }
+  drawPl(); paintPlName(); toast('已刪除「' + n + '」');
+};
+$('#btnPlExport').onclick = exportPl;
+$('#btnPlImport').onclick = () => $('#plFile').click();
+$('#plFile').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const merge = S.tracks.length > 0 && confirm('要「加入」目前清單嗎？\n\n確定＝加入現有清單\n取消＝取代成匯入的清單');
+  importPl(await f.text(), merge);
+  e.target.value = '';
+};
+$('#btnPlClear').onclick = () => {
+  if (S.tracks.length && !confirm('清空目前清單？' + (S.plName ? `（已存的「${S.plName}」也會變成空清單）` : ''))) return;
+  setTracks([], S.plName || ''); au.removeAttribute('src'); paintNow(null);
+};
+$('#plSel').onchange = (e) => { if (e.target.value) openPl(e.target.value); };
+
+/* ---- 設定 / 說明 ---- */
+// <dialog> 在舊 Safari 沒有 showModal()，退回 open 屬性
+const showDlg = (d) => { if (d.showModal) d.showModal(); else d.setAttribute('open', ''); };
+const closeDlg = (d) => { if (d.close) d.close(); else d.removeAttribute('open'); };
+function openSet() {
+  $('#origin').textContent = location.origin === 'null'
+    ? '（file:// 沒辦法用 Google 登入，請用「開啟播放器」啟動器）' : location.origin;
+  $('#cid').value = clientId(); $('#cap').value = S.cap;
+  showDlg($('#dlgSet'));
+}
+$('#btnSet').onclick = openSet;
+$('#setClose').onclick = () => closeDlg($('#dlgSet'));
+$('#setSave').onclick = () => {
+  LS.set('cid', $('#cid').value.trim());
+  const cap = Math.max(50, Math.min(4000, Number($('#cap').value) || 400));
+  S.cap = cap; LS.set('cap', cap); cache.cap = cap * 1048576;
+  S.tokenClient = null; initTokenClient();
+  closeDlg($('#dlgSet')); toast('已儲存設定', 'ok');
+};
+$('#btnHelp').onclick = () => showDlg($('#dlgHelp'));
+$('#helpClose').onclick = () => closeDlg($('#dlgHelp'));
+
+/* ---- 快速鍵 ---- */
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select' || tag === 'textarea' || e.target.isContentEditable) return;
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const step = e.shiftKey ? 1 : 5;
+  const seek = (d) => { if (au.duration) { au.currentTime = AP.clampSeek(au.currentTime + d, au.duration); paintTime(); } };
+  const k = e.key.toLowerCase();
+  const map = {
+    ' ': () => playPause(), s: () => stop(false), n: () => go(1), p: () => go(-1),
+    arrowright: () => seek(step), arrowleft: () => seek(-step),
+    arrowup: () => { $('#vol').value = Math.min(1, S.vol + 0.05); $('#vol').oninput({ target: $('#vol') }); },
+    arrowdown: () => { $('#vol').value = Math.max(0, S.vol - 0.05); $('#vol').oninput({ target: $('#vol') }); },
+    '[': () => setSpeed(AP.stepSpeed(S.speed, -1)), ']': () => setSpeed(AP.stepSpeed(S.speed, 1)),
+    '1': () => setSpeed(0.25), '2': () => setSpeed(0.5), '3': () => setSpeed(1), '4': () => setSpeed(1.5), '5': () => setSpeed(2),
+    a: () => $('#btnA').click(), b: () => $('#btnB').click(), l: () => $('#btnAB').click(),
+    r: () => setRepeat({ off: 'one', one: 'all', all: 'off' }[S.repeat]),
+    '0': () => $('#btnStartGo').click(),
+  };
+  if (map[k]) { e.preventDefault(); map[k](); }
+});
+
+/* =========================================================================
+   8) 啟動
+   ========================================================================= */
+(function boot() {
+  setSpeed(S.speed); setRepeat(S.repeat); setShuffle(S.shuffle);
+  $('#pitch').checked = S.pitch; $('#perTrack').checked = S.perTrack;
+  $('#vol').value = S.vol; $('#volTxt').textContent = Math.round(S.vol * 100) + '%';
+  applyRate(); drawPl(); paintAB(); setAuth(false); paintSel();
+
+  const last = LS.get('last', null);
+  if (last?.tracks?.length) {
+    S.tracks = last.tracks.map((t) => ({ ...t }));
+    S.plName = last.name || ''; S.plLabel = last.label || '';
+    rebuildOrder(); drawList();
+    toast('已回復上次的清單（' + S.tracks.length + ' 首）');
+  }
+  paintPlName();
+  const lf = LS.get('lastFolder', null);
+  if (lf) S.folder = lf;
+
+  // GIS 載入完成才初始化 token client（離線時就靜靜跳過）
+  let n = 0;
+  const t = setInterval(() => {
+    if (window.google?.accounts?.oauth2) { clearInterval(t); if (clientId()) initTokenClient(); }
+    else if (++n > 30) clearInterval(t);
+  }, 300);
+
+  // 只有本機伺服器才有 music\ 音樂庫；部署到 GitHub Pages 時就不用白跑一趟
+  if (/^(localhost|127\.0\.0\.1|\[::1\]|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname)) loadLibrary();
+  else $('#libList').innerHTML = '<div class="empty">這是線上版（GitHub Pages）<br>音樂庫只在本機用 <code>開啟播放器.bat</code> 啟動時才有<br><br>線上請用 ☁️ Drive 或 💻 本機</div>';
+})();
+
+/* 測試鉤子（verify.js 用） */
+window.__ap = { S, au, cv, loadTrack, setTracks, addTracks, sortTracks, setSpeed, setRepeat, setShuffle, stop, go,
+  playPause, readStart, drawList, paintAB, paintPlName, applyRate, playlists, autoSavePl, openPl, importPl,
+  paintSel, driveTrack, setRange, clearRange, buildWave, drawWave, cache: () => cache, peaks: () => S.peaks };
+</script>
+</body>
+</html>

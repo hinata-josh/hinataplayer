@@ -1,0 +1,9 @@
+# 音檔本身不進 git（很大，而且 GitHub Pages 也不需要）
+music/
+!music/.gitkeep
+
+# 測試產物
+test/_page.html
+test/_shot.html
+test/_*.png
+node_modules/

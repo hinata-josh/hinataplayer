@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//k/Html5/drive-scanner/**)",
+      "Read(//k/Html5/helper/**)",
+      "Read(//k/Html5/bun-windows-x64/**)",
+      "Read(//k/Html5/**)",
+      "Bash(node test/verify.js)",
+      "Bash(AP_DRYRUN=1 cmd //c \"開啟播放器.bat\")",
+      "Bash(echo \"rc=$?\")",
+      "Bash(AP_DRYRUN=1 cmd //c \"手機連線.bat\")",
+      "Bash(cmd //c \"cd\")",
+      "Bash(cmd //c \"dir /b *.bat\")",
+      "Bash(cmd //c \"echo hi\")",
+      "Bash(cmd //c _p.bat arg1)",
+      "Bash(cmd //c call _p.bat arg2)",
+      "Bash(echo \"rc2=$?\")",
+      "PowerShell(Remove-Item *)",
+      "Bash(node -e \"1\")",
+      "Bash(node test/shot.js)",
+      "Bash(node -e \"console.log\\('html', require\\('fs'\\).statSync\\('hinataplayer.html'\\).size\\)\")",
+      "Read(//c/Users/JasonLin/.claude/projects/K--Html5/memory/**)",
+      "Bash(printf '%s\\\\n%s\\\\n' \"- [Hinata Player 音檔播放器]\\(project_hinata_player.md\\) — K:\\\\\\\\Html5\\\\\\\\audioplayer 主檔 hinataplayer.html；Drive 掃檔要 drive.readonly、變速/重複範圍/自選清單\" \"- [無頭 Chrome 測播放器]\\(reference_headless_audio_test.md\\) — headless 真的能播音檔驗變速/A-B；結果走 sendBeacon 不是 --dump-dom\")",
+      "Bash(node -e ' *)",
+      "Bash(printf '# 讓 .bat 永遠是 CRLF（LF 會讓 cmd 解析錯亂、變數不展開）\\\\n*.bat text eol=crlf\\\\n*.cmd text eol=crlf\\\\n\\\\n# macOS 啟動器一定要 LF，CRLF 會讓 bash 直接壞掉\\\\n*.command text eol=lf\\\\n*.sh      text eol=lf\\\\n\\\\n# 其餘文字檔一律 LF\\\\n*.html text eol=lf\\\\n*.js   text eol=lf\\\\n*.json text eol=lf\\\\n*.md   text eol=lf\\\\n\\\\n# 二進位別動\\\\n*.mp3 binary\\\\n*.wav binary\\\\n*.m4a binary\\\\n*.flac binary\\\\n*.png binary\\\\n')",
+      "Bash(chmod +x *.command)",
+      "Bash(bash -n 開啟播放器.command)",
+      "Bash(bash -n 手機連線.command)"
+    ]
+  }
+}
