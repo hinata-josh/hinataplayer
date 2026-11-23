@@ -191,6 +191,8 @@ async function serverTests(out) {
 /* ---------- 主流程 ---------- */
 (async function main() {
   const bytes = makeTone(TONE, 3, 440, 44100);
+  // ALAC（iPhone 語音備忘錄格式）素材：給頁內測試驗證「<audio> 播不動 → 前端解成 WAV」退路
+  fs.copyFileSync(path.join(ROOT, 'test', 'fixtures', 'alac-s16-stereo.m4a'), path.join(TONE_DIR, 'alac.m4a'));
   const size = buildPage();
   console.log(`${C.d}測試音檔 ${bytes} bytes｜臨時頁面 ${size} bytes${C.x}`);
 
@@ -217,6 +219,7 @@ async function serverTests(out) {
 
   const results = [];
   await serverTests(results);
+  for (const r of await require('./alac').run()) results.push({ g: '0 ALAC 解碼 / 轉檔（Node 端）', ...r });
   try { chrome.kill(); } catch (e) {}
   try { col.srv.close(); } catch (e) {}
   try { srv.kill(); } catch (e) {}

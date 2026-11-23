@@ -25,7 +25,8 @@
       "Bash(printf '# 讓 .bat 永遠是 CRLF（LF 會讓 cmd 解析錯亂、變數不展開）\\\\n*.bat text eol=crlf\\\\n*.cmd text eol=crlf\\\\n\\\\n# macOS 啟動器一定要 LF，CRLF 會讓 bash 直接壞掉\\\\n*.command text eol=lf\\\\n*.sh      text eol=lf\\\\n\\\\n# 其餘文字檔一律 LF\\\\n*.html text eol=lf\\\\n*.js   text eol=lf\\\\n*.json text eol=lf\\\\n*.md   text eol=lf\\\\n\\\\n# 二進位別動\\\\n*.mp3 binary\\\\n*.wav binary\\\\n*.m4a binary\\\\n*.flac binary\\\\n*.png binary\\\\n')",
       "Bash(chmod +x *.command)",
       "Bash(bash -n 開啟播放器.command)",
-      "Bash(bash -n 手機連線.command)"
+      "Bash(bash -n 手機連線.command)",
+      "Bash(node test/shot.js \"C:/Users/JasonLin/AppData/Local/Temp/claude/K--Html5-audioplayer/c2224100-0a69-421e-9d3f-cc4da3342bba/scratchpad/layout.png\")"
     ]
   }
 }

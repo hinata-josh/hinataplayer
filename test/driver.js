@@ -516,6 +516,76 @@
       return ok(S.index !== before && S.index >= 0, `index ${before} → ${S.index}`);
     });
 
+    group = '3b ALAC（iPhone 語音備忘錄 m4a）';
+    const native = au.canPlayType('audio/mp4; codecs="alac"');
+    await TA('ALAC m4a：<audio> 播不動時自動解成 WAV 並載入', async () => {
+      A.setRepeat('off');
+      A.setTracks([{ key: 'alac1', kind: 'server', url: 'music/__aptest__/alac.m4a', name: '語音備忘錄.m4a', size: 13960 }], 'alac');
+      const t0 = Date.now();
+      // 要等到真的換成這首（上一首 3 秒的 tone 可能還掛著），原生支援就直接讀片長、否則等轉成 blob WAV
+      while (Date.now() - t0 < 8000 && !(au.readyState >= 1 && au.duration > 0 && au.duration < 1 && (native || au.src.startsWith('blob:')))) await sleep(100);
+      ok(au.duration > 0, '一直沒讀到片長（readyState=' + au.readyState + ', error=' + (au.error && au.error.code) + '）');
+      near(au.duration, 13288 / 44100, 0.05, '片長');
+      ok(S.tracks[0].err !== true, '曲目被標成錯誤');
+      return native ? '這個瀏覽器原生支援 ALAC（canPlayType=' + native + '），未走轉換' : ok(au.src.startsWith('blob:'), '沒有換成轉好的 WAV：' + au.src);
+    });
+    await TA('ALAC 轉好的音檔也畫得出波形', async () => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 5000 && !S.peaks) await sleep(100);
+      return ok(S.peaks && S.peaks.length > 0, '沒有波形資料');
+    });
+    await TA('再播一次同一首不用重新轉換', async () => {
+      const before = au.src;
+      A.setTracks([{ key: 'alac1', kind: 'server', url: 'music/__aptest__/alac.m4a', name: '語音備忘錄.m4a', size: 13960 }], 'alac');
+      await sleep(600);
+      return native || ok(au.src === before, '網址變了：' + au.src);
+    });
+
+    group = '3c 轉檔下載';
+    const waitExport = async (prev) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 15000 && (window.__lastExport === prev || $('#btnDlMp3').disabled)) await sleep(100);
+      return window.__lastExport;
+    };
+    T('轉檔列：MP3 / WAV 按鈕與位元率選單都在', () => ok($('#btnDlMp3') && $('#btnDlWav') && $('#dlKbps') && $('#dlRange'), '少了元素'));
+    await TA('⬇️ WAV：ALAC 這首轉成 WAV，檔名與標頭正確', async () => {
+      const prev = window.__lastExport; $('#dlRange').checked = false;
+      $('#btnDlWav').click();
+      const r = await waitExport(prev);
+      ok(r && r !== prev, '沒有產出檔案');
+      eq(r.name, '語音備忘錄.wav', '檔名');
+      const h = new Uint8Array(await r.blob.slice(0, 12).arrayBuffer());
+      return ok(String.fromCharCode(...h.slice(0, 4)) === 'RIFF' && String.fromCharCode(...h.slice(8, 12)) === 'WAVE', 'WAV 標頭錯') && r.blob.size + ' bytes';
+    });
+    await TA('⬇️ MP3：載入內附 lamejs 並編出 MP3', async () => {
+      const prev = window.__lastExport; $('#dlKbps').value = '128';
+      $('#btnDlMp3').click();
+      const r = await waitExport(prev);
+      ok(r && r !== prev, '沒有產出檔案（' + $('#dlTxt').textContent + '）');
+      eq(r.name, '語音備忘錄.mp3', '檔名');
+      const h = new Uint8Array(await r.blob.slice(0, 2).arrayBuffer());
+      ok(h[0] === 0xff && (h[1] & 0xe0) === 0xe0, '開頭不是 MP3 幀同步碼');
+      ok([...document.scripts].some((s) => /vendor\/lame\.min\.js$/.test(s.src)), '不是用內附的 vendor/lame.min.js');
+      return r.blob.size + ' bytes';
+    });
+    await TA('只輸出重複範圍：檔名帶範圍、長度只有那一段', async () => {
+      A.setTracks([{ key: 'tone-x', kind: 'server', url: TONE, name: '測試音.wav', size: 0 }], 'x');
+      const t0 = Date.now();
+      while (Date.now() - t0 < 6000 && !(au.duration > 2)) await sleep(100);
+      $('#rangeA').value = '1'; $('#rangeB').value = '2'; $('#rangeA').dispatchEvent(new Event('change')); $('#rangeB').dispatchEvent(new Event('change'));
+      if (S.ab.a == null) { S.ab.a = 1; S.ab.b = 2; }
+      const prev = window.__lastExport; $('#dlRange').checked = true;
+      $('#btnDlWav').click();
+      const r = await waitExport(prev);
+      $('#dlRange').checked = false;
+      ok(r && r !== prev, '沒有產出檔案');
+      ok(/_0m01s-0m02s\.wav$/.test(r.name), '檔名 ' + r.name);
+      const dv = new DataView(await r.blob.slice(0, 44).arrayBuffer());
+      const sec = dv.getUint32(40, true) / dv.getUint32(28, true);
+      return near(sec, S.ab.b - S.ab.a, 0.05, '長度') && sec.toFixed(2) + ' 秒';
+    });
+
+    group = '3 實際播放';
     await TA('壞掉的路徑會標記錯誤而不是整頁爆掉', async () => {
       A.setTracks([{ key: 'bad', kind: 'server', url: 'music/__aptest__/不存在.wav', name: '壞檔', size: 0 }], 'bad');
       await sleep(700);

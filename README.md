@@ -143,15 +143,27 @@ macOS 對應的啟動器：`開啟播放器.command`／`手機連線.command`／
 - 並且**真的播一段 3 秒測試音**：驗證 2× 真的走兩倍、⏹ 回起始秒數、單曲重複、
   範圍重複繞圈、重複中切 0.25×／2× 立即生效
 - 跨平台守門：`.bat` 是 CRLF、`.command` 是 LF＋shebang、測試腳本沒有硬綁 `K:\` 路徑、
-  頁面帶著 Safari 回退（共 156 項）
+  頁面帶著 Safari 回退
+- ALAC：16/24-bit、單/雙聲道素材逐樣本比對；ALAC m4a 在頁面裡自動轉 WAV 播放；MP3/WAV 轉檔下載（共 174 項）
 
 `node test\shot.js` 可另外輸出一張版面截圖（`test\_shot.png`）。
 
 ---
 
+## 轉檔下載（MP3 / WAV）
+
+播放區最下面一列「轉檔下載」：把**目前這首**轉成 MP3（128～320 kbps）或無損 WAV 直接下載。
+勾「只輸出重複範圍」就只輸出 A～B 那一段（檔名會帶 `_1m23s-2m05s`）。
+全部在瀏覽器裡轉，不會上傳到任何地方；MP3 編碼器是內附的 `vendor/lame.min.js`（lamejs 1.2.1），
+內網、離線、GitHub Pages 都能用。3 分鐘的歌轉 MP3 約十幾秒，旁邊會顯示進度。
+
 ## 支援的格式
 
 `mp3 / wav / m4a / aac / ogg / opus / flac / weba / webm / mp4` 走瀏覽器原生解碼，都沒問題。
+
+**iPhone「語音備忘錄」的 .m4a 是 ALAC（Apple 無損）**——Chrome / Firefox 播不動。播放器偵測到
+`<audio>` 播不了 m4a 時，會在前端自己把 ALAC 解成 WAV 再播（3 分鐘約 1 秒），波形、變速、
+重複範圍、轉檔下載都照常可用。解碼器照 Apple 開源參考實作移植，與 ffmpeg 解碼結果逐樣本相同。
 `wma / aiff / mid / amr` 會列出但標 ⚠️——Chrome 多半播不動，這是瀏覽器的限制不是工具壞了。
 
 ## 檔案
@@ -165,5 +177,7 @@ macOS 對應的啟動器：`開啟播放器.command`／`手機連線.command`／
 | `手機連線.bat` / `.command` | 區網模式（手機同 WiFi 連） |
 | `測試.bat` / `.command` | 無頭 Chrome 實跑驗證 |
 | `test\verify.js` `test\driver.js` | 驗證腳本（node 端／頁內） |
+| `vendor\lame.min.js` | MP3 編碼器（lamejs 1.2.1，離線可用） |
+| `test\alac.js` `test\alac-fixture.js` `test\fixtures\*.m4a` | ALAC 解碼／轉檔的 Node 端測試與素材（無損 → 逐樣本比對） |
 | `test\chrome.js` | 跨平台找 Chrome（可用 `AP_CHROME` 覆寫） |
 | `music\` | 音樂庫目錄（不進 git） |

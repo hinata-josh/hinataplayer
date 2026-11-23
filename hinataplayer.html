@@ -349,6 +349,19 @@ kbd{background:#0b1017;border:1px solid var(--line);border-bottom-width:2px;bord
       <input type="range" id="vol" min="0" max="1" step="0.01" value="1">
       <span class="hint" id="volTxt">100%</span>
     </div>
+
+    <div class="grp">
+      <span class="lb">轉檔下載</span>
+      <div class="seg">
+        <button id="btnDlMp3" title="把目前這首轉成 MP3 下載（在瀏覽器裡轉，不上傳）">⬇️ MP3</button>
+        <button id="btnDlWav" title="把目前這首轉成無損 WAV 下載">⬇️ WAV</button>
+      </div>
+      <select id="dlKbps" class="btn sm" title="MP3 位元率" style="flex:none;width:auto">
+        <option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option>
+      </select>
+      <label class="ck" title="有設定重複範圍時，只輸出 A～B 那一段"><input type="checkbox" id="dlRange"> 只輸出重複範圍</label>
+      <span class="hint" id="dlTxt"></span>
+    </div>
   </section>
 </main>
 
@@ -538,6 +551,337 @@ AP.stepSpeed = function (cur, dir) {
 AP.clampSeek = function (t, dur) {
   if (!isFinite(dur) || dur <= 0) return Math.max(0, t || 0);
   return Math.min(Math.max(0, t || 0), Math.max(0, dur - 0.05));
+};
+
+/* ---- ALAC（Apple 無損）解碼 ----
+   iPhone「語音備忘錄」錄的 .m4a 是 ALAC，Chrome/Firefox 的 <audio> 與 decodeAudioData 都播不動。
+   這裡照 Apple 開源參考實作（ALACDecoder / ag_dec / dp_dec / matrix_dec）在前端解成 16-bit PCM，
+   再包成 WAV 交給 <audio>，本機、音樂庫、Drive、GitHub Pages 都適用。 */
+AP.SHOW_LOG = true;                                   // ALAC 轉換步驟 log（開發者工具 Console 看）
+AP.log = function () { if (AP.SHOW_LOG && typeof console !== 'undefined') console.log.apply(console, ['[ALAC]'].concat([].slice.call(arguments))); };
+
+/** 從 bit 位置 pos 讀 n(≤32) 個 bit，回傳無號整數；buf 尾端要多墊幾個 0 byte */
+AP._bits = function (buf, pos, n) {
+  let v = 0;
+  while (n > 0) {
+    const take = n > 16 ? 16 : n, i = pos >>> 3;
+    const w = (buf[i] << 16) | (buf[i + 1] << 8) | buf[i + 2];
+    v = v * (1 << take) + ((w << (8 + (pos & 7))) >>> (32 - take));
+    pos += take; n -= take;
+  }
+  return v;
+};
+
+/** 解析 MP4/M4A 容器，找到 ALAC 音軌：回傳 { cfg, packets:[[offset,size]...] }；不是 ALAC 回 null */
+AP.alacDemux = function (u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const u32 = (p) => dv.getUint32(p);
+  const typ = (p) => String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]);
+  const boxes = (s, e) => {
+    const out = []; let p = s;
+    while (p + 8 <= e) {
+      let size = u32(p), hdr = 8;
+      if (size === 1) { size = u32(p + 8) * 4294967296 + u32(p + 12); hdr = 16; }
+      else if (size === 0) size = e - p;
+      if (size < hdr || p + size > e) break;
+      out.push({ type: typ(p + 4), s: p + hdr, e: p + size });
+      p += size;
+    }
+    return out;
+  };
+  const find = (list, t) => list.find((b) => b.type === t);
+  const moov = find(boxes(0, u8.length), 'moov');
+  if (!moov) return null;
+  for (const trak of boxes(moov.s, moov.e).filter((b) => b.type === 'trak')) {
+    const mdia = find(boxes(trak.s, trak.e), 'mdia'); if (!mdia) continue;
+    const minf = find(boxes(mdia.s, mdia.e), 'minf'); if (!minf) continue;
+    const stbl = find(boxes(minf.s, minf.e), 'stbl'); if (!stbl) continue;
+    const kids = boxes(stbl.s, stbl.e);
+    const stsd = find(kids, 'stsd'); if (!stsd) continue;
+    const ent = boxes(stsd.s + 8, stsd.e)[0];
+    if (!ent || ent.type !== 'alac') continue;
+    // 樣本描述裡的子 box「alac」(24 byte magic cookie)；QuickTime v1/v2 描述長度不同，所以用掃的
+    let ck = -1;
+    for (let p = ent.s; p + 36 <= ent.e; p++) {
+      if (u8[p + 4] === 0x61 && typ(p + 4) === 'alac' && u32(p) >= 36 && p + u32(p) <= ent.e) { ck = p + 12; break; }
+    }
+    if (ck < 0) throw new Error('ALAC 缺少設定資料 (magic cookie)');
+    const cfg = {
+      frameLength: u32(ck), bitDepth: u8[ck + 5], pb: u8[ck + 6], mb: u8[ck + 7], kb: u8[ck + 8],
+      numChannels: u8[ck + 9], maxRun: dv.getUint16(ck + 10), sampleRate: u32(ck + 20),
+    };
+    const stsz = find(kids, 'stsz'), stsc = find(kids, 'stsc'), stco = find(kids, 'stco') || find(kids, 'co64');
+    if (!stsz || !stsc || !stco) throw new Error('M4A 缺少取樣表 (stsz/stsc/stco)');
+    const fixed = u32(stsz.s + 4), n = u32(stsz.s + 8);
+    const sizes = new Array(n);
+    for (let i = 0; i < n; i++) sizes[i] = fixed || u32(stsz.s + 12 + 4 * i);
+    const scN = u32(stsc.s + 4), sc = [];
+    for (let i = 0; i < scN; i++) sc.push([u32(stsc.s + 8 + 12 * i), u32(stsc.s + 12 + 12 * i)]);
+    const is64 = stco.type === 'co64', cN = u32(stco.s + 4);
+    const packets = []; let si = 0, sj = 0;
+    for (let c = 0; c < cN && si < n; c++) {
+      while (sj + 1 < sc.length && sc[sj + 1][0] <= c + 1) sj++;
+      const spc = sc.length ? sc[sj][1] : 0;
+      let off = is64 ? u32(stco.s + 8 + 8 * c) * 4294967296 + u32(stco.s + 12 + 8 * c) : u32(stco.s + 8 + 4 * c);
+      for (let k = 0; k < spc && si < n; k++, si++) { packets.push([off, sizes[si]]); off += sizes[si]; }
+    }
+    return { cfg, packets };
+  }
+  return null;
+};
+
+/** 快速判斷：這份 bytes 是不是 ALAC 的 m4a */
+AP.isAlac = function (u8) { try { return !!AP.alacDemux(u8); } catch (e) { return true; } };
+
+/** ALAC → { sampleRate, channels, frames, pcm:Int16Array(交錯) } */
+AP.alacDecode = function (u8) {
+  const d = AP.alacDemux(u8);
+  if (!d) throw new Error('不是 ALAC 格式');
+  const cfg = d.cfg, packets = d.packets;
+  const nch = cfg.numChannels, fl = cfg.frameLength, depth = cfg.bitDepth;
+  if (!nch || !fl || fl > 1 << 20 || depth < 8 || depth > 32) throw new Error('ALAC 設定值不合理');
+  AP.log('1) 容器解析完成：', cfg.sampleRate + 'Hz', nch + '聲道', depth + 'bit', '每幀', fl, '樣本，共', packets.length, '幀');
+  const out = new Int16Array(packets.length * fl * nch);
+  const pred = new Int32Array(fl), mixU = new Int32Array(fl), mixV = new Int32Array(fl);
+  const shiftBuf = new Uint16Array(fl * 2), coefsU = new Int16Array(32), coefsV = new Int16Array(32);
+  const outShift = depth - 16, wb = (1 << cfg.kb) - 1;
+  const sign = (x) => (x > 0) - (x < 0);
+  const B = AP._bits;
+  let buf = new Uint8Array(0), pos = 0, frames = 0;
+  const rd = (n) => { const v = B(buf, pos, n); pos += n; return v; };
+
+  // 自適應 Golomb-Rice 解碼（ag_dec.c dyn_decomp）
+  function dynDecomp(pb, num, maxSize) {
+    let mb = cfg.mb, zmode = 0, c = 0, bp = pos;
+    while (c < num) {
+      let k = 31 - Math.clz32((mb >>> 9) + 3);
+      if (k > cfg.kb) k = cfg.kb;
+      const m = (1 << k) - 1;
+      let i = bp >>> 3;
+      let sl = ((buf[i] << 24) | (buf[i + 1] << 16) | (buf[i + 2] << 8) | buf[i + 3]) << (bp & 7);
+      let pre = Math.clz32(~sl), n;
+      if (pre >= 9) { n = B(buf, bp + 9, maxSize); bp += 9 + maxSize; }
+      else {
+        bp += pre + 1; n = pre;
+        if (k !== 1) {
+          const v = (sl << (pre + 1)) >>> (32 - k);
+          bp += k - 1; n = pre * m;
+          if (v >= 2) { n += v - 1; bp += 1; }
+        }
+      }
+      const nd = n + zmode, half = Math.floor((nd + 1) / 2);
+      pred[c++] = (nd & 1) ? -half : half;
+      mb = pb * nd + mb - Math.floor(pb * mb / 512);
+      if (n > 0xffff) mb = 0xffff;
+      zmode = 0;
+      if (mb * 4 < 512 && c < num) {                 // 進入「連續 0」模式
+        zmode = 1;
+        const kz = Math.clz32(mb) - 24 + ((mb + 16) >> 6), mz = ((1 << kz) - 1) & wb;
+        i = bp >>> 3;
+        sl = ((buf[i] << 24) | (buf[i + 1] << 16) | (buf[i + 2] << 8) | buf[i + 3]) << (bp & 7);
+        pre = Math.clz32(~sl);
+        let r;
+        if (pre >= 9) { r = B(buf, bp + 9, 16); bp += 25; }
+        else {
+          bp += pre + 1;
+          const v = kz > 0 ? (sl << (pre + 1)) >>> (32 - kz) : 0;
+          bp += kz; r = pre * mz + v - 1;
+          if (v < 2) { r -= v - 1; bp -= 1; }
+        }
+        if (c + r > num) throw new Error('ALAC 資料損毀（連續 0 超出幀長）');
+        for (let j = 0; j < r; j++) pred[c++] = 0;
+        if (r >= 65535) zmode = 0;
+        mb = 0;                                      // 連續 0 之後平均值歸零（漏了這行右聲道靜音段會變雜訊）
+      }
+    }
+    pos = bp;
+  }
+
+  // 線性預測還原（dp_dec.c unpc_block）
+  function unpc(pc1, o, num, coefs, na, chanBits, den) {
+    const cs = 32 - chanBits, denhalf = den ? 1 << (den - 1) : 0;
+    o[0] = pc1[0];
+    if (na === 0) { if (pc1 !== o && num > 1) o.set(pc1.subarray(1, num), 1); return; }
+    if (na === 31) {
+      let prev = o[0];
+      for (let j = 1; j < num; j++) { prev = ((pc1[j] + prev) << cs) >> cs; o[j] = prev; }
+      return;
+    }
+    for (let j = 1; j <= na; j++) o[j] = ((pc1[j] + o[j - 1]) << cs) >> cs;
+    const lim = na + 1;
+    for (let j = lim; j < num; j++) {
+      const top = o[j - lim], pj = j - 1;
+      let sum1 = 0;
+      for (let k = 0; k < na; k++) sum1 = (sum1 + Math.imul(coefs[k], o[pj - k] - top)) | 0;
+      let del = pc1[j], del0 = del;
+      const sg = sign(del);
+      del = (del + top + (((sum1 + denhalf) | 0) >> den)) | 0;
+      o[j] = (del << cs) >> cs;
+      if (sg > 0) {
+        for (let k = na - 1; k >= 0; k--) {
+          const dd = top - o[pj - k], sgn = sign(dd);
+          coefs[k] -= sgn;
+          del0 -= (na - k) * ((sgn * dd) >> den);
+          if (del0 <= 0) break;
+        }
+      } else if (sg < 0) {
+        for (let k = na - 1; k >= 0; k--) {
+          const dd = top - o[pj - k], sgn = sign(dd);
+          coefs[k] += sgn;
+          del0 -= (na - k) * ((-sgn * dd) >> den);
+          if (del0 >= 0) break;
+        }
+      }
+    }
+  }
+
+  function chan(pbF, num, chanBits, mode, coefs, na, den, dst) {
+    dynDecomp(Math.floor(cfg.pb * pbF / 4), num, chanBits);
+    if (mode === 0) unpc(pred, dst, num, coefs, na, chanBits, den);
+    else { unpc(pred, pred, num, null, 31, chanBits, 0); unpc(pred, dst, num, coefs, na, chanBits, den); }
+  }
+
+  const put = (c, i, v) => { if (c < nch) out[(frames + i) * nch + c] = outShift > 0 ? v >> outShift : v << -outShift; };
+
+  for (let pi = 0; pi < packets.length; pi++) {
+    const off = packets[pi][0], size = packets[pi][1];
+    if (off + size > u8.length) throw new Error('M4A 檔案不完整（第 ' + (pi + 1) + ' 幀超出檔尾）');
+    buf = new Uint8Array(size + 8); buf.set(u8.subarray(off, off + size)); pos = 0;
+    const end = size * 8;
+    let ch = 0, numSamples = fl;
+    while (pos + 3 <= end) {
+      const tag = rd(3);
+      if (tag === 7) break;                          // ID_END
+      if (tag === 4) {                               // ID_DSE：資料串流，略過
+        rd(4); const align = rd(1); let cnt = rd(8);
+        if (cnt === 255) cnt += rd(8);
+        if (align) pos = (pos + 7) & ~7;
+        pos += cnt * 8; continue;
+      }
+      if (tag === 6) {                               // ID_FIL：填充，略過
+        let cnt = rd(4); if (cnt === 15) cnt += rd(8) - 1;
+        pos += cnt * 8; continue;
+      }
+      if (tag !== 0 && tag !== 1 && tag !== 3) throw new Error('不支援的 ALAC 元素 ' + tag);
+      const pair = tag === 1;                        // 0=SCE 單聲道、1=CPE 雙聲道、3=LFE
+      rd(4); rd(12);
+      const hb = rd(4), partial = hb >> 3, escape = hb & 1;
+      let bytesShifted = (hb >> 1) & 3;
+      let chanBits = depth - bytesShifted * 8 + (pair ? 1 : 0);
+      if (partial) numSamples = rd(32);
+      if (numSamples > fl) throw new Error('ALAC 資料損毀（幀長超過設定）');
+      let mixBits = 0, mixRes = 0, shiftPos = -1;
+      if (!escape) {
+        mixBits = rd(8); mixRes = (rd(8) << 24) >> 24;
+        let h = rd(8); const modeU = h >> 4, denU = h & 15;
+        h = rd(8); const pbU = h >> 5, numU = h & 31;
+        for (let i = 0; i < numU; i++) coefsU[i] = rd(16);
+        let modeV = 0, denV = 0, pbV = 0, numV = 0;
+        if (pair) {
+          h = rd(8); modeV = h >> 4; denV = h & 15;
+          h = rd(8); pbV = h >> 5; numV = h & 31;
+          for (let i = 0; i < numV; i++) coefsV[i] = rd(16);
+        }
+        if (bytesShifted) { shiftPos = pos; pos += bytesShifted * 8 * (pair ? 2 : 1) * numSamples; }
+        chan(pbU, numSamples, chanBits, modeU, coefsU, numU, denU, mixU);
+        if (pair) chan(pbV, numSamples, chanBits, modeV, coefsV, numV, denV, mixV);
+      } else {                                       // 未壓縮幀
+        chanBits = depth; const sh = 32 - chanBits;
+        for (let i = 0; i < numSamples; i++) {
+          mixU[i] = (rd(chanBits) << sh) >> sh;
+          if (pair) mixV[i] = (rd(chanBits) << sh) >> sh;
+        }
+        bytesShifted = 0;
+      }
+      const shift = bytesShifted * 8;
+      if (shift) {
+        const save = pos; pos = shiftPos;
+        for (let i = 0; i < numSamples * (pair ? 2 : 1); i++) shiftBuf[i] = rd(shift);
+        pos = save;
+      }
+      if (!pair) {
+        for (let i = 0; i < numSamples; i++) put(ch, i, shift ? (mixU[i] << shift) | shiftBuf[i] : mixU[i]);
+        ch += 1;
+      } else {                                       // 聲道矩陣還原（matrix_dec.c unmix）
+        for (let i = 0; i < numSamples; i++) {
+          const u = mixU[i], v = mixV[i];
+          let l = u, r = v;
+          if (mixRes) { l = (u + v - (Math.imul(mixRes, v) >> mixBits)) | 0; r = (l - v) | 0; }
+          if (shift) { l = (l << shift) | shiftBuf[2 * i]; r = (r << shift) | shiftBuf[2 * i + 1]; }
+          put(ch, i, l); put(ch + 1, i, r);
+        }
+        ch += 2;
+      }
+      if (ch >= nch) break;
+    }
+    frames += numSamples;
+  }
+  AP.log('2) 解碼完成：', frames, '樣本 ≈', (frames / cfg.sampleRate).toFixed(2), '秒');
+  return { sampleRate: cfg.sampleRate, channels: nch, frames, pcm: out.subarray(0, frames * nch) };
+};
+
+/** 16-bit PCM（交錯）→ WAV 檔 bytes */
+AP.pcmToWav = function (pcm, channels, rate) {
+  const bytes = pcm.length * 2, b = new Uint8Array(44 + bytes), dv = new DataView(b.buffer);
+  const str = (p, s) => { for (let i = 0; i < s.length; i++) b[p + i] = s.charCodeAt(i); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + bytes, true); str(8, 'WAVE'); str(12, 'fmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, channels, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * channels * 2, true);
+  dv.setUint16(32, channels * 2, true); dv.setUint16(34, 16, true);
+  str(36, 'data'); dv.setUint32(40, bytes, true);
+  new Uint8Array(b.buffer, 44).set(new Uint8Array(pcm.buffer, pcm.byteOffset, bytes));   // 小端機（所有主流裝置）直接拷貝
+  return b;
+};
+
+AP.alacToWav = function (u8) {
+  const r = AP.alacDecode(u8);
+  return AP.pcmToWav(r.pcm, r.channels, r.sampleRate);
+};
+
+/* ---- 轉檔下載：Float32 聲道陣列 → WAV / MP3 ---- */
+AP.f2i = (x) => (x >= 1 ? 32767 : x <= -1 ? -32768 : Math.round(x < 0 ? x * 32768 : x * 32767));
+
+/** [Float32Array 每聲道] → 交錯 Int16Array（超過 2 聲道只取前 2 個） */
+AP.interleave = function (chans) {
+  const c = Math.min(2, chans.length), n = chans[0].length, o = new Int16Array(n * c);
+  for (let i = 0; i < n; i++) for (let k = 0; k < c; k++) o[i * c + k] = AP.f2i(chans[k][i]);
+  return o;
+};
+AP.chansToWav = (chans, rate) => AP.pcmToWav(AP.interleave(chans), Math.min(2, chans.length), rate);
+
+/** 用 lamejs 編 MP3；onProg(0~1) 回報進度，每編一段就讓出主執行緒避免畫面卡死 */
+AP.encodeMp3 = async function (lame, chans, rate, kbps, onProg) {
+  const st = chans.length > 1, L = chans[0], R = st ? chans[1] : null, n = L.length;
+  const enc = new lame.Mp3Encoder(st ? 2 : 1, rate, kbps), parts = [], B = 1152;
+  const lb = new Int16Array(B), rb = new Int16Array(B);
+  AP.log('MP3 步驟1 開始編碼：', st ? '立體聲' : '單聲道', rate + 'Hz', kbps + 'kbps', (n / rate).toFixed(1) + '秒');
+  for (let i = 0, k = 0; i < n; i += B, k++) {
+    const m = Math.min(B, n - i), l = m === B ? lb : new Int16Array(m), r = m === B ? rb : new Int16Array(m);
+    for (let j = 0; j < m; j++) { l[j] = AP.f2i(L[i + j]); if (st) r[j] = AP.f2i(R[i + j]); }
+    const d = st ? enc.encodeBuffer(l, r) : enc.encodeBuffer(l);
+    if (d.length) parts.push(new Uint8Array(d.buffer, d.byteOffset, d.length).slice());
+    if (k % 300 === 299) { if (onProg) onProg(i / n); await new Promise((res) => setTimeout(res, 0)); }
+  }
+  const end = enc.flush();
+  if (end.length) parts.push(new Uint8Array(end.buffer, end.byteOffset, end.length).slice());
+  if (onProg) onProg(1);
+  const size = parts.reduce((s, p) => s + p.length, 0);
+  AP.log('MP3 步驟2 編碼完成：', (size / 1048576).toFixed(2) + 'MB');
+  return parts;
+};
+
+/** 下載檔名：原檔名去副檔名，有範圍就加 _1m23s-2m05s */
+AP.dlName = function (name, ext, range) {
+  const base = String(name || 'audio').replace(/\.[^.\/\\]+$/, '').replace(/[\\/:*?"<>|]+/g, '_') || 'audio';
+  const tag = (s) => { s = Math.round(s); return Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's'; };
+  return base + (range ? '_' + tag(range.a) + '-' + tag(range.b) : '') + '.' + ext;
+};
+
+/** 依秒數範圍切出各聲道（不在範圍就整首） */
+AP.sliceChans = function (chans, rate, range) {
+  if (!range) return chans;
+  const n = chans[0].length, s = Math.max(0, Math.min(n, Math.floor(range.a * rate))), e = Math.max(s, Math.min(n, Math.ceil(range.b * rate)));
+  return chans.map((c) => c.subarray(s, e));
 };
 
 /** 自然排序（讓「第2部」排在「第10部」前面） */
@@ -1055,7 +1399,34 @@ function importPl(text, merge) {
 /* =========================================================================
    6) 播放核心
    ========================================================================= */
+/* ALAC 退路：<audio> 播不動的 m4a，若是 ALAC 就在前端解成 WAV（每首轉一次，留最近 4 首） */
+const ALAC_EXT = ['m4a', 'm4b', 'mp4'];
+const wavCache = new Map();
+let alacTry = -1;
+async function alacUrl(t, src) {
+  if (wavCache.has(t.key)) return wavCache.get(t.key);
+  AP.log('0) <audio> 播不動，檢查是否為 ALAC：', t.name);
+  const ab = t.kind === 'local' && t.file ? await readAB(t.file) : await (await fetch(src)).arrayBuffer();
+  const u8 = new Uint8Array(ab);
+  if (!AP.isAlac(u8)) { AP.log('   不是 ALAC，放棄'); return null; }
+  toast('偵測到 Apple 無損 (ALAC) 格式，轉換中…');
+  await new Promise((r) => setTimeout(r, 40));       // 先讓提示畫出來，解碼會佔住主執行緒約 1 秒
+  const t0 = performance.now();
+  const wav = AP.alacToWav(u8);
+  const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+  wavCache.set(t.key, url);
+  if (wavCache.size > 4) {
+    const [k, old] = wavCache.entries().next().value;
+    wavCache.delete(k); URL.revokeObjectURL(old);
+  }
+  const sec = ((performance.now() - t0) / 1000).toFixed(1);
+  AP.log('3) 已轉成 WAV：', AP.fmtSize(wav.length), '耗時', sec, '秒');
+  toast(`ALAC 已轉換完成（${sec} 秒），開始播放`, 'ok');
+  return url;
+}
+
 async function srcFor(t, onProg) {
+  if (wavCache.has(t.key)) return wavCache.get(t.key);
   if (t.kind === 'server') return t.url;
   if (t.kind === 'local') {
     if (!t._url) t._url = URL.createObjectURL(t.file);
@@ -1103,10 +1474,14 @@ async function loadTrack(i, autoplay, seekTo) {
     if (my !== loadSeq) return;
     dl(null);
     pendingSeek = seekTo != null ? seekTo : S.startAt;
+    S.wantPlay = !!autoplay;
     au.src = url;
     applyRate();
     au.load();
-    if (autoplay) { try { await au.play(); } catch (e) { toast('瀏覽器阻擋自動播放，請按 ▶', 'bad'); } }
+    if (autoplay) {
+      try { await au.play(); }
+      catch (e) { if (e.name === 'NotAllowedError') toast('瀏覽器阻擋自動播放，請按 ▶', 'bad'); }   // 格式不支援交給 error 事件（ALAC 退路）
+    }
     t.err = false;
   } catch (e) {
     dl(null); t.err = true; drawList();
@@ -1144,9 +1519,27 @@ au.addEventListener('ended', () => {
   if (n === S.index && S.repeat === 'one') { au.currentTime = AP.clampSeek(S.startAt, au.duration); au.play().catch(() => {}); return; }
   loadTrack(n, true);
 });
-au.addEventListener('error', () => {
+au.addEventListener('error', async () => {
   if (!au.getAttribute('src')) return;
   const t = S.tracks[S.index];
+  if (t && alacTry !== loadSeq && ALAC_EXT.includes(AP.ext(t.name)) && !wavCache.has(t.key)) {
+    alacTry = loadSeq;                               // 同一次載入只試一次，避免轉完仍失敗時無限重試
+    const my = loadSeq;
+    try {
+      const url = await alacUrl(t, au.currentSrc || au.src);
+      if (url) {
+        if (my !== loadSeq) return;                  // 轉換期間已切到別首
+        au.src = url; applyRate(); au.load();         // pendingSeek 尚未用掉，loadedmetadata 會照常跳到起始秒數
+        if (S.wantPlay) au.play().catch(() => {});
+        t.err = false; drawList();
+        return;
+      }
+    } catch (e) {
+      console.warn('[ALAC]', e);
+      if (my === loadSeq) { t.err = true; drawList(); toast('ALAC 轉換失敗：' + e.message, 'bad'); }
+      return;
+    }
+  }
   if (t) { t.err = true; drawList(); }
   toast('這個檔案瀏覽器播不動' + (t && AP.isWeak(t.name) ? '（' + AP.ext(t.name).toUpperCase() + ' 格式 Chrome 多半不支援）' : ''), 'bad');
 });
@@ -1353,7 +1746,7 @@ async function buildWave(t) {
   hint.textContent = '分析波形中…'; hint.classList.add('busy'); S.peaks = null; drawWave();
   const my = ++waveSeq;
   try {
-    const ab = t.kind === 'local' && t.file ? await readAB(t.file) : await (await fetch(src)).arrayBuffer();
+    const ab = t.kind === 'local' && t.file && !wavCache.has(t.key) ? await readAB(t.file) : await (await fetch(src)).arrayBuffer();
     const ctxA = new (window.AudioContext || window.webkitAudioContext)();
     const buf = await decodeAB(ctxA, ab);
     const pk = AP.peaksOf(buf, WAVE_N);
@@ -1371,6 +1764,85 @@ async function buildWave(t) {
   }
 }
 let waveSeq = 0;
+
+/* =========================================================================
+   轉檔下載：目前這首 → MP3 / WAV（全在瀏覽器裡轉，不上傳任何地方）
+   ========================================================================= */
+let lameP = null;
+function loadLame() {
+  if (window.lamejs && window.lamejs.Mp3Encoder) return Promise.resolve(window.lamejs);
+  if (lameP) return lameP;
+  // 先用專案內附的 vendor/（內網、離線、GitHub Pages 都能用），失敗才走 CDN
+  const urls = ['vendor/lame.min.js', 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js'];
+  lameP = (async () => {
+    for (const u of urls) {
+      try {
+        await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = u; s.onload = ok; s.onerror = bad; document.head.appendChild(s); });
+        if (window.lamejs && window.lamejs.Mp3Encoder) { AP.log('MP3 步驟0 編碼器載入：', u); return window.lamejs; }
+      } catch (e) { AP.log('MP3 編碼器載入失敗：', u); }
+    }
+    lameP = null; throw new Error('載不到 MP3 編碼器');
+  })();
+  return lameP;
+}
+
+/** 目前這首解成 AudioBuffer（ALAC 會用已轉好的 WAV） */
+async function curBuffer(t) {
+  const src = wavCache.get(t.key) || au.currentSrc || au.src;
+  const ab = t.kind === 'local' && t.file && !wavCache.has(t.key) ? await readAB(t.file) : await (await fetch(src)).arrayBuffer();
+  const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+  try { return await decodeAB(ctxA, ab); } finally { try { ctxA.close(); } catch (e) {} }
+}
+
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+let dlBusy = false;
+async function exportCur(fmt) {
+  const t = S.tracks[S.index];
+  if (!t || !au.getAttribute('src')) { toast('先選一首歌再轉檔', 'bad'); return; }
+  if (dlBusy) return;
+  const useRange = $('#dlRange').checked && S.ab.a != null && S.ab.b != null;
+  if ($('#dlRange').checked && !useRange) toast('還沒設定重複範圍，改輸出整首');
+  const range = useRange ? { a: S.ab.a, b: S.ab.b } : null;
+  const txt = $('#dlTxt'), btns = [$('#btnDlMp3'), $('#btnDlWav')];
+  dlBusy = true; btns.forEach((b) => (b.disabled = true));
+  const t0 = performance.now();
+  try {
+    txt.textContent = '解碼中…';
+    AP.log('轉檔 步驟0：', t.name, '→', fmt.toUpperCase(), range ? `範圍 ${AP.fmtTime(range.a)}~${AP.fmtTime(range.b)}` : '整首');
+    const lame = fmt === 'mp3' ? await loadLame() : null;
+    const buf = await curBuffer(t);
+    const all = []; for (let c = 0; c < buf.numberOfChannels; c++) all.push(buf.getChannelData(c));
+    const chans = AP.sliceChans(all, buf.sampleRate, range);
+    if (!chans[0].length) throw new Error('範圍內沒有聲音資料');
+    let blob;
+    if (fmt === 'mp3') {
+      const kbps = Number($('#dlKbps').value) || 192;
+      const parts = await AP.encodeMp3(lame, chans, buf.sampleRate, kbps, (p) => { txt.textContent = `編碼 MP3… ${Math.round(p * 100)}%`; });
+      blob = new Blob(parts, { type: 'audio/mpeg' });
+    } else blob = new Blob([AP.chansToWav(chans, buf.sampleRate)], { type: 'audio/wav' });
+    const name = AP.dlName(t.name, fmt, range);
+    window.__lastExport = { blob, name };             // 給測試檢查
+    saveBlob(blob, name);
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    txt.textContent = `✅ ${name}（${AP.fmtSize(blob.size)}）`;
+    AP.log('轉檔 完成：', name, AP.fmtSize(blob.size), '耗時', sec, '秒');
+    toast(`已下載 ${name}`, 'ok');
+  } catch (e) {
+    console.warn('[轉檔]', e);
+    txt.textContent = '';
+    toast('轉檔失敗：' + (e && e.message || e) + (/decode|Unable/i.test(String(e && e.message)) ? '（這個格式瀏覽器解不開）' : ''), 'bad');
+  } finally {
+    dlBusy = false; btns.forEach((b) => (b.disabled = false));
+  }
+}
+$('#btnDlMp3').onclick = () => exportCur('mp3');
+$('#btnDlWav').onclick = () => exportCur('wav');
 
 /* ---- 波形上的拖曳：把手／整段移動／新框選；沒移動就是跳播 ---- */
 let wdrag = null;
