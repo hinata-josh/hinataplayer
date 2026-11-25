@@ -7,3 +7,4 @@ test/_page.html
 test/_shot.html
 test/_*.png
 node_modules/
+test/_mobile.html

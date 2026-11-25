@@ -45,7 +45,7 @@ setTimeout(() => {
   const r = spawnSync(CHROME, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--mute-audio',
     '--autoplay-policy=no-user-gesture-required',
-    '--window-size=1440,1000', '--force-device-scale-factor=1',
+    '--window-size=' + (process.env.AP_SHOT_SIZE || '1440,1000'), '--force-device-scale-factor=1',
     '--virtual-time-budget=9000', '--screenshot=' + OUT,
     '--user-data-dir=' + path.join(require('os').tmpdir(), 'ap-shot-profile'),
     `http://localhost:${PORT}/test/_shot.html`,
